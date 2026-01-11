@@ -21,7 +21,6 @@
 structure ParseDec =
  PARSE_DEC
    ( 
-     structure MISC       = Misc
      structure SYMBOLS    = Symbols
      structure LEX        = Lex
      structure SYMSET     = SymSet
