@@ -122,7 +122,6 @@ struct
         end
     end
 
-    open Misc
     open LEX
     open CODETREE
     open STRUCTVALS
@@ -1206,12 +1205,12 @@ struct
               (* The environment for the local declarations. *)
               val localEnv =
                 {
-                   lookupVal     = lookupDefault (#lookup newValEnv)  (#lookupVal env),
-                   lookupType    = lookupDefault (#lookup newTypeEnv) (#lookupType env),
+                   lookupVal     = Misc.lookupDefault (#lookup newValEnv) (#lookupVal env),
+                   lookupType    = Misc.lookupDefault (#lookup newTypeEnv) (#lookupType env),
                    lookupFix     = #lookupFix env,
                    (* This environment is needed if we open a 
                       structure which has sub-structures. *)
-                   lookupStruct  = lookupDefault (#lookup newStrEnv) (#lookupStruct env),
+                   lookupStruct  = Misc.lookupDefault (#lookup newStrEnv) (#lookupStruct env),
                    lookupSig     = #lookupSig env,
                    lookupFunct   = #lookupFunct env,
                    lookupTvars   = #lookupTvars env,
@@ -1323,7 +1322,7 @@ struct
                                 mkEx (name, excType, locations)
                             end
                         | _ =>
-                            raise InternalError "processException: badly-formed parse-tree"
+                            raise Misc.InternalError "processException: badly-formed parse-tree"
                 in
                     (* Save this value. *)
                     value := exValue;
@@ -1452,13 +1451,13 @@ struct
                 )
 
           | WildCard _ => (* Should never occur in an expression. *)
-                  raise InternalError "assignTypes: wildcard found"
+                  raise Misc.InternalError "assignTypes: wildcard found"
 
           | Layered _ => 
-                  raise InternalError "assignTypes: layered pattern found"
+                  raise Misc.InternalError "assignTypes: layered pattern found"
 
           | EmptyTree => 
-                  raise InternalError "assignTypes: emptytree found"
+                  raise Misc.InternalError "assignTypes: emptytree found"
 
           | Parenthesised(p, _) => assValues near p
                 
@@ -1483,7 +1482,7 @@ struct
                  body of the function. *)
               val bodyEnv =
                 {
-                  lookupVal     = lookupDefault (#lookup newEnv) (#lookupVal env),
+                  lookupVal     = Misc.lookupDefault (#lookup newEnv) (#lookupVal env),
                   lookupType    = #lookupType env,
                   lookupFix     = #lookupFix env,
                   lookupStruct  = #lookupStruct env,
@@ -1581,7 +1580,7 @@ struct
                              and others in the surrounding scope. *)
                             lookupVal     = 
                                 if isRecursive
-                                then lookupDefault (#lookup recEnv) (#lookupVal env)
+                                then Misc.lookupDefault (#lookup recEnv) (#lookupVal env)
                                 else #lookupVal env,
                             lookupType    = #lookupType env,
                             lookupFix     = #lookupFix env,
@@ -1590,8 +1589,8 @@ struct
                             lookupFunct   = #lookupFunct env,
                             (* Extend the environment of type variables. *)
                             lookupTvars   =
-                                lookupDefault (#lookup explicit)
-                                    (lookupDefault (#lookup implicit) (#lookupTvars env)),
+                                Misc.lookupDefault (#lookup explicit)
+                                    (Misc.lookupDefault (#lookup implicit) (#lookupTvars env)),
                             enterVal      = #enterVal env,
                             enterType     = #enterType env,
                             enterFix      = #enterFix env,
@@ -1722,7 +1721,7 @@ struct
                     (* Enter it in the environment. *)
                     #enter newEnv (name, funVar)
                 end
-                |   findNameAndPatts _ = raise InternalError "findNameAndPatts: badly-formed parse-tree";
+                |   findNameAndPatts _ = raise Misc.InternalError "findNameAndPatts: badly-formed parse-tree";
 
             in
                 val () = List.app findNameAndPatts tlist
@@ -1800,8 +1799,8 @@ struct
                         val bodyEnv =
                         { 
                             lookupVal     = 
-                                lookupDefault (#lookup varEnv)
-                                    (lookupDefault (#lookup newEnv) (#lookupVal env)),
+                                Misc.lookupDefault (#lookup varEnv)
+                                    (Misc.lookupDefault (#lookup newEnv) (#lookupVal env)),
                             lookupType    = #lookupType env,
                             lookupFix     = #lookupFix env,
                             lookupStruct  = #lookupStruct env,
@@ -1809,8 +1808,8 @@ struct
                             lookupFunct   = #lookupFunct env,
                             (* Extend the environment of type variables. *)
                             lookupTvars   =
-                                lookupDefault (#lookup explicit)
-                                    (lookupDefault (#lookup implicit) (#lookupTvars env)),
+                                Misc.lookupDefault (#lookup explicit)
+                                    (Misc.lookupDefault (#lookup implicit) (#lookupTvars env)),
                             enterVal      = #enterVal env,
                             enterType     = #enterType env,
                             enterFix      = #enterFix env,
@@ -1996,7 +1995,7 @@ struct
             local
                 fun lookup(s, line) =
                     lookupTyp 
-                        ({lookupType = lookupDefault(#lookup localTypeEnv) (#lookupType env),
+                        ({lookupType = Misc.lookupDefault(#lookup localTypeEnv) (#lookupType env),
                             lookupStruct = #lookupStruct env},
                         s, giveError (v, lex, line))
             in
@@ -2053,7 +2052,7 @@ struct
                 (* Sort the constructors by name.  This simplifies matching with
                    datatypes in signatures. *)
                 fun leq {constrName=xname: string, ...} {constrName=yname, ...} = xname < yname;
-                val sortedConstrs = quickSort leq constrs;
+                val sortedConstrs = Misc.quickSort leq constrs;
 
                 fun processConstr ({constrName=name, constrArg, idLocn, constrVal, ...}) =
                 let
@@ -2124,15 +2123,15 @@ struct
                         val localEnv = searchList ();
                         fun enterValFn pair = (#enter localEnv pair; #enterVal env pair);
                         val lookupValFn = 
-                            lookupDefault (#lookup localEnv)
-                                (lookupDefault (#lookup consEnv) (#lookupVal env))
+                            Misc.lookupDefault (#lookup localEnv)
+                                (Misc.lookupDefault (#lookup consEnv) (#lookupVal env))
                         fun allValNames () = (stringsOfSearchList localEnv () @ stringsOfSearchList consEnv () @ #allValNames env ())
                         (* We also have to do something similar with types.  This is really
                            only for perverse cases where there is a datatype replication
                            inside the abstype. *)
                         fun enterTypeFn pair = (#enter abstypeEnv pair; #enterType env pair);
                         val lookupTypeFn = 
-                            lookupDefault (#lookup abstypeEnv) (#lookupType env)
+                            Misc.lookupDefault (#lookup abstypeEnv) (#lookupType env)
                     in
                         { 
                             lookupVal     = lookupValFn,
@@ -2268,7 +2267,7 @@ struct
                     (* Although tv is a type variable it could occur as the least general type.
                        Unify takes care of that. *)
                     if isSome(unifyTypes(TypeVar tv, leastGeneral(List.map #value types)))
-                    then raise InternalError "reduceTypes: Unable to set type vars"
+                    then raise Misc.InternalError "reduceTypes: Unable to set type vars"
                     else ()
             in
                 val () = List.app reduceTypes typeVarMap
