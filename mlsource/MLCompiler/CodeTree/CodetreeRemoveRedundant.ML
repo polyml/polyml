@@ -288,7 +288,7 @@ struct
                 in
                     case indKind of
                          IndVariant => NONE
-                    |    other => SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, indKind = indKind})
+                    |    _ => SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, indKind = indKind})
                 end
 
             |   doClean codeUse (Tuple{ fields, isVariant = false}) =
