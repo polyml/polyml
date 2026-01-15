@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16, 2020-21, 2025 David C. J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020-21, 2025-6 David C. J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -114,33 +114,37 @@ struct
        type we'd want to look it up but if it's in a datatype it's an argument. *)
     fun printerForType(ty, baseLevel, argTypes) =
     let
-        fun printCode(TypeVar(TypeVariable{link=ref l, ...}), level) =
+        fun printCode(TypeVar(TypeVariable{link=ref l, ...}), bvMap, level) =
             (
                 (* Only in a general type.  We need to reduce the type immediately to
                    eliminate bound variables. *)
                 case followRefChainToEnd l of
                     NONE => codePrintDefault
-                |   SOME final => printCode(reduceToType final, level)
+                |   SOME(SimpleInstance t) => printCode(t, bvMap, level)
+                |   SOME(Instance(t, m)) => printCode(t, m, level)
             )
 
-        |   printCode(BoundTypeVar(_, index), level) =
+        |   printCode(BoundTypeVar(_, index), bvMap, level) =
             (
+                (* Bound variables can occur in two different situations.  If we're constructing
+                   a print function for a datatype the bound variables are the variables for
+                   the datatype e..g. datatype ('a, 'b) t has bound vars 'a and 'b.  If we're
+                   constructing a print function as the result of a call to PolyML.print(x) we
+                   may have bound variables in "x". *)
                  (* Return default code for a missing type variable.  This can occur
                    if we have unreferenced type variables that need to be supplied but
                    are treated as "don't care". *)
-                case argTypes of
-                        NONE => codePrintDefault
-                    |   SOME typeVarMap => TypeValue.extractPrinter(typeVarMap index level)
+                case (bvMap index, argTypes) of
+                    (SOME t, _) => printCode(t, bvMap, level)
+                |   (NONE, SOME typeVarMap) => TypeValue.extractPrinter(typeVarMap index level)
+                |   (NONE, NONE) => codePrintDefault
             )
 
-        |   printCode(TypeConstruction { constr=TypeConstrs {identifier=TypeId{idKind = TypeFn{resType, ...}, ...},...}, args, ...}, level) =
-            let (* Type function *)
-                val argMap = createTypeFnArgumentMap(args, fn _ => NONE)
-            in
-                printCode(reduceToType(Instance(resType, argMap)), level)
-            end
+        |   printCode(TypeConstruction { constr=TypeConstrs {identifier=TypeId{idKind = TypeFn{resType, ...}, ...},...}, args, ...}, bvMap, level) =
+                (* Type function *)
+                printCode(resType, createTypeFnArgumentMap(args, bvMap), level)
 
-        |   printCode(TypeConstruction { constr=TypeConstrs {identifier,...}, args, name, ...}, level) =
+        |   printCode(TypeConstruction { constr=TypeConstrs {identifier,...}, args, name, ...}, bvMap, level) =
             let (* Other datatypes. *)
                 val nLevel = newLevel level
                 (* Get the type Id and put in code to extract the printer ref. *)
@@ -167,7 +171,7 @@ struct
                     let
                         (* We need a type value here.  The printer field will be used to
                            print the type argument. *)
-                        fun makePrinterId t = createTypeValue {eqCode=CodeZero, printCode=printCode(t, nLevel)}
+                        fun makePrinterId t = createTypeValue {eqCode=CodeZero, printCode=printCode(t, bvMap, nLevel)}
                         val argList = map makePrinterId args
                     in
                         mkProc(
@@ -180,12 +184,12 @@ struct
                     end
             end
 
-        |   printCode(LabelledRecord [], _) = (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled", [], 0)
+        |   printCode(LabelledRecord [], _, _) = (* Empty tuple: This is the unit value. *) mkProc(codePrettyString "()", 1, "print-labelled", [], 0)
 
-        |   printCode(LabelledRecord [{name, typeOf}], level) =
+        |   printCode(LabelledRecord [{name, typeOf}], bvMap, level) =
             let (* Optimised unary record *)
                 val localLevel = newLevel level
-                val entryCode = mkEval(printCode(typeOf, localLevel), [arg1])
+                val entryCode = mkEval(printCode(typeOf, bvMap, localLevel), [arg1])
                 val printItem =
                     codeList([codePrettyString(name^" ="), codePrettyBreak(1, 0), entryCode, codePrettyString "}"], CodeZero)
             in
@@ -195,12 +199,12 @@ struct
                     1, "print-labelled", getClosure localLevel, 0)
             end
 
-        |   printCode(typ  as LabelledRecord recList, level) =
-                printRecord(recList, isProductType typ andalso List.length recList >= 2, true, level)
+        |   printCode(typ  as LabelledRecord recList, bvMap, level) =
+                printRecord(recList, isProductType typ andalso List.length recList >= 2, true, bvMap, level)
 
-        |   printCode(FunctionType _, _) = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
+        |   printCode(FunctionType _, _, _) = mkProc(codePrettyString "fn", 1, "print-function", [], 0)
 
-        |   printCode(FlexibleRecordVar{recList=ref recl, fullList=ref full, ...}, level) =
+        |   printCode(FlexibleRecordVar{recList=ref recl, fullList=ref full, ...}, bvMap, level) =
             let
                 (* The record should be frozen at this point but this instance
                    may not have all the fields.  There's no point in adding them
@@ -208,19 +212,19 @@ struct
                 val {names, ...} = followRefChainToEnd full
                 val recList = followRefChainToEnd recl
             in
-                printRecord(recList, false, List.length names = List.length recList, level)
+                printRecord(recList, false, List.length names = List.length recList, bvMap, level)
             end
 
-        |   printCode(typ as OverloadSetVar _, level) =
+        |   printCode(typ as OverloadSetVar _, bvMap, level) =
             let
                 val constr as TypeConstrs {name,...} = typeConstrFromOverload typ
             in
-                printCode(mkTypeConstruction(name, constr, [], []), level)
+                printCode(mkTypeConstruction(name, constr, [], []), bvMap, level)
             end
 
-        |   printCode(_, _) = mkProc(codePrettyString "<empty>", 1, "print-empty", [], 0)
+        |   printCode(_, _, _) = mkProc(codePrettyString "<empty>", 1, "print-empty", [], 0)
 
-        and printRecord(recList, isTuple, isFrozen, level) =
+        and printRecord(recList, isTuple, isFrozen, bvMap, level) =
         let
             val localLevel = newLevel level
             val valToPrint = mkInd(0, arg1) and depthCode = mkInd(1, arg1)
@@ -241,7 +245,7 @@ struct
                 let
                     val entryCode =
                         (* Last field: no separator. *)
-                        mkEval(printCode(typeOf, localLevel),
+                        mkEval(printCode(typeOf, bvMap, localLevel),
                                     [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]])
                     val (start, terminator) =
                         if isTuple then ([], ")")
@@ -261,7 +265,7 @@ struct
                             start @
                             [
                                 mkEval(
-                                    printCode(typeOf, localLevel),
+                                    printCode(typeOf, bvMap, localLevel),
                                     [mkTuple[mkInd(offset, valToPrint), decDepth depthCode]]),
                                 codePrettyString ",",
                                 codePrettyBreak (1, 0)
@@ -277,16 +281,79 @@ struct
                 1, "print-labelled", getClosure localLevel, 0)
         end
     in
-        printCode(ty, baseLevel)
+        printCode(ty, fn _ => NONE, baseLevel)
     end
 
-    and makeEq(ty, level: level, getTypeValueForID, typeVarMap): codetree =
-    let
-        fun equalityForConstruction(tyConstr as TypeConstrs {identifier=iden,...}, args): codetree =
+    and makeEq(TypeVar(TypeVariable{link=ref l, ...}), level, getTypeValueForID, bvMap, typeVarMap) =
+        (
+            case followRefChainToEnd l of
+                NONE => codeEqDefault
+            |   SOME(SimpleInstance t) => makeEq(t, level, getTypeValueForID, bvMap, typeVarMap)
+            |   SOME(Instance(t, tvMap)) => makeEq(t, level, getTypeValueForID, tvMap, typeVarMap)
+        )
+
+    |   makeEq(BoundTypeVar(_, index), level, getTypeValueForID, bvMap, typeVarMap) =
+        (
+            (* Bound variables can occur in two different situations.  If we're constructing
+               the equality function for a datatype the bound variables are the variables for
+               the datatype e..g. datatype ('a, 'b) t has bound vars 'a and 'b.  If we're
+               constructing an equality function as the result of the call to the overloaded
+               '=' or '<>' functions we may have bound variables in the argument types. *)
+            case (bvMap index, typeVarMap) of
+                (SOME t, _) => makeEq(t, level, getTypeValueForID, bvMap, typeVarMap)
+            |   (NONE, SOME typeVarMap) => TypeValue.extractEquality(typeVarMap index level)
+            |   (NONE, NONE) => codeEqDefault
+        )
+
+    |   makeEq(TypeConstruction { constr=TypeConstrs {identifier=TypeId{idKind = TypeFn{resType, ...}, ...},...}, args, ...},
+                level, getTypeValueForID, bvMap, typeVarMap) =
+        (* Type function *)
+            makeEq (resType, level, getTypeValueForID, createTypeFnArgumentMap(args, bvMap), typeVarMap)
+
+    |   makeEq(TypeConstruction{constr, args, ...}, level, getTypeValueForID, bvMap, typeVarMap) =
+            equalityForConstruction(constr, args, level, getTypeValueForID, bvMap, typeVarMap)
+
+    |   makeEq(LabelledRecord [{typeOf=singleton, ...}], level, getTypeValueForID, bvMap, typeVarMap) =
+            (* Unary tuples are optimised - no indirection. *)
+            makeEq(singleton, level, getTypeValueForID, bvMap, typeVarMap)
+
+    |   makeEq(LabelledRecord recList, level, getTypeValueForID, bvMap, typeVarMap) =
+        (* Combine the entries.
+            fun eq(a,b) = #1 a = #1 b andalso #2 a = #2 b ... *)
+        let
+            (* Have to turn this into a new function. *)
+            val nLevel = newLevel level
+            fun combineEntries ([], _) = CodeTrue
+            |   combineEntries ({typeOf, ...} :: t, n) =
+                let
+                    val compareElements =
+                        makeEq(typeOf, nLevel, getTypeValueForID, bvMap, typeVarMap)
+                in
+                    mkCand(
+                        mkEval(compareElements, [mkInd(n, arg1), mkInd(n, arg2)]),
+                        combineEntries (t, n+1))
+                end
+            val tupleCode = combineEntries(recList, 0)
+         in
+            mkProc(tupleCode, 2, "eq{...}(2)", getClosure nLevel, 0)
+        end
+
+    |   makeEq(ty as OverloadSetVar _, level, getTypeValueForID, bvMap, typeVarMap) =
+        (* Should have been resolved. *)
+            equalityForConstruction(typeConstrFromOverload ty, [], level, getTypeValueForID, bvMap, typeVarMap)
+
+    |   makeEq(FlexibleRecordVar{recList=ref _, fullList=ref _, ...}, _, _, _, _) =
+            (* TODO: If we have all the fields treat it as a labelled record otherwise fall back to
+               structure equality. *)
+            codeEqDefault
+
+    |   makeEq(_, _, _, _, _) = raise InternalError "Equality for function"
+
+    and equalityForConstruction(tyConstr as TypeConstrs {identifier=iden,...}, args, level, getTypeValueForID, bvMap, typeVarMap) =
         (* Generate an equality function for a datatype construction. *)
-            (* Special case: If this is ref, Array.array or Array2.array we must use
-               pointer equality and not attempt to create equality functions for
-               the argument.  It may not be an equality type. *)
+        (* Special case: If this is ref, Array.array or Array2.array we must use
+           pointer equality and not attempt to create equality functions for
+           the argument.  It may not be an equality type. *)
         if isPointerEqType tyConstr
         then equalPointerOrWordFn
         else
@@ -302,7 +369,7 @@ struct
                 )
             |   getArg ty =
                 let
-                    val eqFun = makeEq(ty, level, getTypeValueForID, typeVarMap)
+                    val eqFun = makeEq(ty, level, getTypeValueForID, bvMap, typeVarMap)
                     open TypeValue
                 in
                     (* We need a type value here.  The equality function will be used to compare *)
@@ -315,66 +382,6 @@ struct
             then codeForId
             else mkEval(codeForId, map getArg args)
         end
-    in
-        case ty of
-            TypeVar(TypeVariable{link=ref l, ...}) =>
-            (
-                case followRefChainToEnd l of
-                    NONE => codeEqDefault
-                |   SOME tyVal => makeEq(reduceToType tyVal, level, getTypeValueForID, typeVarMap)
-            )
-
-        |   BoundTypeVar(_, index) =>
-            (
-                case typeVarMap of
-                    NONE => codeEqDefault
-                |   SOME typeVarMap => TypeValue.extractEquality(typeVarMap index level)
-            )
-
-        |   TypeConstruction { constr=TypeConstrs {identifier=TypeId{idKind = TypeFn{resType, ...}, ...},...}, args, ...} =>
-            let (* Type function *)
-                val argMap = createTypeFnArgumentMap(args, fn _ => NONE)
-            in
-                makeEq (reduceToType(Instance(resType, argMap)), level, getTypeValueForID, typeVarMap)
-            end
-
-        |   TypeConstruction{constr, args, ...} => equalityForConstruction(constr, args)
-
-        |   LabelledRecord [{typeOf=singleton, ...}] =>
-                (* Unary tuples are optimised - no indirection. *)
-                makeEq(singleton, level, getTypeValueForID, typeVarMap)
-
-        |   LabelledRecord recList =>
-            (* Combine the entries.
-                fun eq(a,b) = #1 a = #1 b andalso #2 a = #2 b ... *)
-            let
-                (* Have to turn this into a new function. *)
-                val nLevel = newLevel level
-                fun combineEntries ([], _) = CodeTrue
-                |   combineEntries ({typeOf, ...} :: t, n) =
-                    let
-                        val compareElements =
-                            makeEq(typeOf, nLevel, getTypeValueForID, typeVarMap)
-                    in
-                        mkCand(
-                            mkEval(compareElements, [mkInd(n, arg1), mkInd(n, arg2)]),
-                            combineEntries (t, n+1))
-                    end
-                val tupleCode = combineEntries(recList, 0)
-             in
-                mkProc(tupleCode, 2, "eq{...}(2)", getClosure nLevel, 0)
-            end
-
-        |   OverloadSetVar _ => (* Should have been resolved. *)
-                equalityForConstruction(typeConstrFromOverload ty, [])
-
-        |   FlexibleRecordVar{recList=ref _, fullList=ref _, ...} =>
-                (* TODO: If we have all the fields treat it as a labelled record otherwise fall back to
-                   structure equality. *)
-                codeEqDefault
-
-        |   _ => raise InternalError "Equality for function"
-    end
 
     (* Create equality functions for a set of possibly mutually recursive datatypes. *)
     fun equalityForDatatypes(typeDataList, eqAddresses, baseEqLevel): (int * codetree) list =
@@ -464,7 +471,7 @@ struct
                             (* Test whether the values match. *)
                             val eqValue =
                                 mkEval(
-                                    makeEq(resType, baseEqLevelP1, getEqFnForID, argTypeMap),
+                                    makeEq(resType, baseEqLevelP1, getEqFnForID, fn _ => NONE, argTypeMap),
                                     [destruct 0, destruct 1])
                         in
                             (* We have equality if both values match
@@ -702,7 +709,7 @@ struct
             val eqCode =
                 if not isEq then CodeZero
                 else (* We need a function that takes two arguments rather than a single pair. *)
-                    makeEq(resType, level, fn (typeId, _, l) => codeId(typeId, l), NONE)
+                    makeEq(resType, level, fn (typeId, _, l) => codeId(typeId, l), fn _ => NONE, NONE)
             val printCode = printerForType(resType, level, NONE)
         in
             createTypeValue {
@@ -739,7 +746,7 @@ struct
             and eqCode =
                 if not isEq then CodeZero
                 else createCode(fn(nLevel, argTypeMap) =>
-                        makeEq(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), argTypeMap), "equality()")
+                        makeEq(resType, nLevel, fn (typeId, _, l) => codeId(typeId, l), fn _ => NONE, argTypeMap), "equality()")
         in
             createTypeValue {
                 eqCode = eqCode,
@@ -863,7 +870,7 @@ struct
         val nLevel = newLevel level
         (* The final result function must take a single argument. *)
         val resultCode =
-            makeEq(ty, nLevel, fn (typeId, _, l) => codeId(typeId, l), NONE)
+            makeEq(ty, nLevel, fn (typeId, _, l) => codeId(typeId, l), fn _ => NONE, NONE)
     in
         (* We need to wrap this up in a new inline function. *)
         mkInlproc(mkEval(resultCode, [mkInd(0, arg1), mkInd(1, arg1)]),
