@@ -47,6 +47,7 @@ structure EXPORTTREE: EXPORTTREESIG
 structure STRUCTURES : STRUCTURESSIG
 structure PARSEDEC : PARSEDECSIG
 structure DEBUG: DEBUG
+structure SYMBOLS: SymbolsSig
 
 structure UTILITIES :
 sig
@@ -66,7 +67,7 @@ sig
 end;
 
 sharing STRUCTVALS.Sharing = VALUEOPS.Sharing = PRETTY.Sharing = STRUCTURES.Sharing
-      = LEX.Sharing = EXPORTTREE.Sharing = SYMSET = PARSEDEC = CODETREE
+      = LEX.Sharing = EXPORTTREE.Sharing = SYMSET = PARSEDEC = CODETREE = SYMBOLS.Sharing
 
  ) : COMPILERBODYSIG
 
@@ -105,8 +106,6 @@ struct
         allFunct:     unit -> (string*functors) list
       }
 
-    val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
-
     fun baseCompiler (lex : LEX.lexan, nameSpace : nameSpace, debugSwitches : Universal.universal list) :
        exportTree option * (unit ->
            { fixes: (string * fixStatus) list, values: (string * values) list,
@@ -137,9 +136,9 @@ struct
         val startLocn = LEX.location lex
 
         val () =
-            if SYMSET.inside (LEX.sy lex, SYMSET.semicolon)
-            then LEX.insymbol lex
-            else ()
+            case LEX.sy lex of
+                SYMBOLS.Semicolon => LEX.insymbol lex
+            |   _ => ()
       
         val parentTreeNav =
             case List.find (Universal.tagIs EXPORTTREE.rootTreeTag) debugSwitches of
@@ -147,7 +146,8 @@ struct
             |   NONE => { parent = NONE, next = NONE, previous = NONE }
     in
         (* An empty declaration (or end of file!) *)
-        if SYMSET.inside (LEX.sy lex, stopSyms) then
+        if (case LEX.sy lex of SYMBOLS.AbortParse => true | SYMBOLS.Semicolon => true | _ => false)
+        then
             if LEX.errorOccurred lex (* We could have, for example, an unterminated comment. *) then
                 (NONE, NONE)
             else
@@ -166,6 +166,8 @@ struct
                          lookupFix = MISC.lookupDefault (#lookup newFixEnv) (#lookupFix globals)}
                     and params : PARSEDEC.params =
                         {recordPunning = DEBUG.getParameter DEBUG.languageExtensionsTag debugSwitches}
+
+                    val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
                 in
                     PARSEDEC.parseDec (stopSyms, lex, fixes, params)
                 end
