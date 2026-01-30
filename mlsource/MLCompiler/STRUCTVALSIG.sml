@@ -36,7 +36,6 @@ sig
   
     (* Standard type constructors. *)
   
-    type typeVarForm
     eqtype uniqueId
     
     type typeIdDescription = { location: location, name: string, description: string }
@@ -65,7 +64,7 @@ sig
     |   Bound of { offset: int, eqType: bool possRef, isDatatype: bool, arity: int }
     |   TypeFn of
         {
-            tyVars: typeVarForm list,
+            arity:      int,
             resType: types,
             usedTvs: BoolVector.vector,
             typeFunCount: int,
@@ -75,10 +74,70 @@ sig
 
     and typeFnEq = TypeFnEqNever | TypeFnEq of BoolVector.vector
 
+    (* Templates for type variables.  Normal type variables are TemplPlain.
+       equality means this is an equality type.  The compiler adds equality
+       functions to functions that contain an equality test and print functions to those that
+       use PolyML.print.
+       TemplFlexRec is used when a function contains flexible records that have not been
+       resolved when the function was generalised.
+       TemplOverload is used for the functions at the outer level that can be overloaded. *)
+    and typeVarTemplate =
+        TemplPlain of { equality: bool }
+    |   TemplFlexRec of
+        {
+            equality: bool,
+            recList: {typeOf: types, name: string} list,
+            fullList: {names: string list, frozen: bool} refChain ref
+        }
+    |   TemplOverload of string
+
+    (* Variables used in unification.  These are instantiated from generic type variables.
+       In addition to equality described above there is also the nonunifiable
+       property.  This is set when type variables are entered explicitly and indicates that
+       the type variable cannot be made less general.  e.g. (fn x => x+1): 'a->'a 
+       is an error. *)
+    and typeVar =
+        TypeVariable of
+        {
+            link: instanceType option refChain ref,
+            equality: bool refChain ref,
+            level: tvLevel refChain ref
+        }
+
+    (* A type variable can be set to one of these. TVLUnset is the initial state.  TVLCoreType is used
+       when the type variable has been unified with a core type and includes the map for the bound type
+       variables. TVLLink is used when the type variable has been unified with another type variable.
+       TVLOverload is used when the type variable is set to an overload set. *)
+    and typeVarLink =
+        TVLUnset
+    |   TVLCoreType of { types: types, map: tvIndex -> typeVar }
+    |   TVLLink of typeVar
+    |   TVLOverload of typeConstrs list
+
+    (* Index for type variables.  This is simply to make the use clearer. *)
+    and tvIndex = TVIndex of int
+
+    (* Reference chain.  Any entry may be chained onto this. *)
+    and 'a refChain = ChainRef of 'a refChain ref | ChainEnd of 'a
 
         (* A type is the union of these different cases. *)
     and types = 
-        TypeVar of typeVarForm
+        TypeVar of typeVar
+
+        (* Bound type variable. This is an index into a table or list of types.  The name is just for printing. *)
+    |   BoundTypeVar of string * tvIndex
+
+        (* Free type variable.  These are used where a type variable has been introduced explicitly.
+           Normally they are NonGeneric and  can only be generalised in a scope less than "level".
+           Generic is used when matching a signature and ensures that the value in the matching
+           structure is fully polymorphic. *)
+    |   FreeTypeVar of
+        {
+            name: string,
+            equality: bool,
+            level: tvLevel,
+            uid: uniqueId
+        }
 
     |   TypeConstruction of
         {
@@ -94,29 +153,49 @@ sig
             result: types
         }
 
-    |   LabelledType  of labelledRec
+        (* A normal tuple or labelled record.  Tuples are labelled records with fields #1, #2 etc. *)
+    |   LabelledRecord of {typeOf: types, name: string} list
 
-    |   OverloadSet   of
+        (* Flexible records i.e. derived from "{a, ...}". These can only occur with
+           local values since the record must be frozen at the top level.
+           The first is a variable, similar to TypeVar, that can be updated.
+           A flexible record consists of the list of fields with their types which can be
+           extended during unification.  The full list holds the field names.  Every
+           instance has the same list of names.  When "frozen" is true the list cannot be
+           extended. "properties" is used when new fields need to be added. *)
+    |   FlexibleRecordVar of
         {
-            typeset: typeConstrs list
+            recList: {typeOf: types, name: string} list refChain ref,
+            fullList: {names: string list, frozen: bool} refChain ref,
+            equality: bool refChain ref,
+            level: tvLevel refChain ref
         }
 
+        (* An overload set.  This is constructed from a TemplOverload template along with the current
+           set of overloads for the identifier.  e.g. for "+" that might be FixedInt.int, LargeInt.int,
+           Word.word etc.  As unification proceeds the set may reduce to a single type.
+           These are chained so that if two sets are unified they become linked and subsequent
+           use of either affects both. *)
+    |   OverloadSetVar of typeConstrs list refChain ref
+
+        (* For when there has been a type error or an undefined identifier *)
     |   BadType
-  
-    |   EmptyType
 
     and typeConstrs = 
         TypeConstrs of
         {
             name:       string,
-            typeVars:   typeVarForm list,
             identifier: typeId,
             locations:  locationProp list (* Location of declaration *)
         }
 
-    and labelFieldList =
-        FieldList of string list * bool (* True if this is frozen *)
-    |   FlexibleList of labelFieldList ref
+    and typeConstrSet = (* A type constructor with its, possible, value constructors. *)
+        TypeConstrSet of typeConstrs * values list
+
+    (* Instance types.  A type plus a map for bound type variables. *)
+    and instanceType =
+        Instance of types * (tvIndex -> types option)
+    |   SimpleInstance of types
 
     and valAccess =
         Global   of codetree
@@ -172,19 +251,22 @@ sig
         Value of
         {
             name: string,
-            typeOf: types,
+            typeOf: valueType,
             access: valAccess,
             class: valueClass,
             locations: locationProp list,
-            references: references,
-            instanceTypes: types list ref option
+            references: references
         }
+
+    (* The "type" of a value.  In general this is polymorphic and when an instance is created assignable type
+       variables are made for each of the templates.  Bound variables in #typeof are mapped onto these. *)
+    and valueType = ValueType of types * typeVarTemplate list
 
     (* Classes of values. *)
     and valueClass =
         ValBound
     |   PattBound
-    |   Exception
+    |   Exception of { nullary: bool }
     |   Constructor of { nullary: bool, ofConstrs: int }
 
     (* Location properties.  A value may have some or all of these. *)
@@ -194,14 +276,12 @@ sig
     |   StructureAt of location
     |   SequenceNo of FixedInt.int
 
-    withtype labelledRec =
-    {
-        (* Fields actually present in this record.  If this was flexible at some
-           stage there may be extra fields listed in the full field list. *)
-        recList: { name: string, typeof: types } list,
-        (* The names of all the fields including extra fields. *)
-        fullList: labelFieldList
-    }
+    and tvLevel = Generalisable | NotGeneralisable of int
+
+    (* Reference chains.  These are used when unification between two entries
+       makes a permanent link between all of them. *)
+    val followRefChainToRef: 'a refChain ref -> 'a refChain ref * 'a
+    val followRefChainToEnd: 'a refChain -> 'a
 
     (* type identifiers. *)
     val isEquality:   typeId -> bool
@@ -217,34 +297,8 @@ sig
     
     val makeUniqueId: unit -> uniqueId
 
-    (* Types *)
-    val badType:   types
-    val emptyType: types
-
-    val isBad:     types -> bool
-    val isEmpty:   types -> bool
-
-    val recordFields   : labelledRec -> string list
-    val recordIsFrozen : labelledRec -> bool
-
-    datatype typeConstrSet = (* A type constructor with its, possible, value constructors. *)
-        TypeConstrSet of typeConstrs * values list
-
-    datatype tvLevel = Generalisable | NotGeneralisable of int
-
-    val tvLevel:        typeVarForm -> tvLevel
-    val tvEquality:     typeVarForm -> bool
-    val tvPrintity:     typeVarForm -> bool
-    val tvNonUnifiable: typeVarForm -> bool
-    val tvValue:        typeVarForm -> types
-    val tvSetValue:     typeVarForm * types -> unit
-
-    val sameTv: typeVarForm * typeVarForm -> bool
-    
-    val makeTv:
-        {value: types, level: tvLevel, equality: bool, nonunifiable: bool, printable: bool } -> typeVarForm
-
-    val generalisable: tvLevel (* Backwards compatibility. *)
+    (* Types *)    
+    val makeTv: {value: instanceType option, level: tvLevel, equality: bool } -> typeVar
 
     (* Access to values, structures etc. *)
     val makeLocal:    unit -> valAccess
@@ -267,9 +321,6 @@ sig
     (* Values. *)
     val undefinedValue: values
     val isUndefinedValue: values -> bool
-
-    val makeOverloaded: string * types * typeDependent -> values
-    val makeValueConstr: string * types * bool * int * valAccess * locationProp list -> values
 
     (* Infix status *)
     datatype infixity = 
@@ -325,11 +376,15 @@ sig
         and  infixity   = infixity
         and  functors   = functors
         and  locationProp = locationProp
-        and  typeVarForm = typeVarForm
         and  level      = level
         and  tvLevel    = tvLevel
         and  typeFnEq   = typeFnEq
-
+        and  typeVarTemplate = typeVarTemplate
+        and  typeVar    = typeVar
+        and  typeVarLink = typeVarLink
+        and  tvIndex    = tvIndex
+        and  valueType  = valueType
+        and  instanceType = instanceType
     end
 end;
 

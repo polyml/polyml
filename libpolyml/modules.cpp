@@ -1,7 +1,7 @@
 /*
     Title:  modules.cpp - Load and save modules
 
-    Copyright (c) 2015, 2017-19, 2021, 2025 David C.J. Matthews
+    Copyright (c) 2015, 2017-19, 2021, 2025-6 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -190,7 +190,13 @@ typedef struct _modDependencyEntry
 // Information about currently loaded modules.  There will also
 // be permanent memory spaces with the same Ids in gMem.
 
-static std::vector<ModuleId> loadedModules;
+class LoadedModuleData {
+public:
+    ModuleId modId;
+    std::vector<ModuleId> modDependencies;
+};
+
+static std::vector<LoadedModuleData> loadedModules;
 
 class ModIdAndName {
 public:
@@ -243,10 +249,40 @@ void ModuleExporter::RunModuleExport(PolyObject* rootFn)
 {
     PolyObject* copiedRoot = 0;
     CopyScan copyScan;
-    // Set the dependencies.
+
+    // Set the dependencies.  These are included first since the caller may have provided names.
     copyScan.dependencies[exportSignature] = true; // Always include the executable
     for (std::vector<ModIdAndName>::iterator i = dependencies.begin(); i < dependencies.end(); i++)
         copyScan.dependencies[i->modId] = true;
+    // Add any further dependencies to produce the transitive closure.
+    // Can't use an iterator here because the size may increase.  Actually, every dependency will
+    // already include the transitive closure of its dependencies so it isn't necessary to look
+    // deeper.
+    for (std::vector<ModIdAndName>::size_type i = 0; i < dependencies.size(); i++)
+    {
+        ModuleId m = dependencies[i].modId;
+        for (std::vector<LoadedModuleData>::const_iterator j = loadedModules.cbegin(); j != loadedModules.cend(); j++)
+        {
+            // Find the entry in the loaded module table.  It should be there somewhere.
+            if (j->modId == m)
+            {
+                // Add all the dependencies if they're not already there.
+                for (std::vector<ModuleId>::const_iterator k = j->modDependencies.cbegin(); k < j->modDependencies.cend(); k++)
+                {
+                    if (!copyScan.dependencies[k->modId])
+                    {
+                        ModIdAndName m;
+                        m.modId = k->modId;
+                        // Add this to the end.  It will be processed later but the sub-dependencies should already be there.
+                        dependencies.push_back(m);
+                        copyScan.dependencies[k->modId] = true; // Don't need to add it again.
+                    }
+                }
+
+                break; // Don't need to search further
+            }
+        }
+    }
 
     try {
         copyScan.initialise();
@@ -448,7 +484,12 @@ void ModuleExporter::RunModuleExport(PolyObject* rootFn)
         fclose(exportFile); exportFile = NULL;
 
         // Add this to the loaded module table.
-        loadedModules.push_back(exportModId);
+        LoadedModuleData loadMod;
+        loadMod.modId = exportModId;
+        loadMod.modDependencies.resize(dependencies.size());
+        for (std::vector<ModIdAndName>::const_iterator i = dependencies.cbegin(); i != dependencies.cend(); i++)
+            loadMod.modDependencies.push_back(i->modId);
+        loadedModules.push_back(loadMod);
 
         // If it all succeeded we can switch over to the permanent spaces.
         if (gMem.PromoteNewExportSpaces(exportModId))
@@ -545,12 +586,12 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
             ModuleId mId = moduleIdFromByteVector(taskData, p->Get(0));
             // Check that this module is currently loaded.  This isn't strictly necessary
             // but it's almost certainly a mistake.
-            std::vector<ModuleId>::iterator i = loadedModules.begin();
+            std::vector<LoadedModuleData>::iterator i = loadedModules.begin();
             while (true)
             {
                 if (i == loadedModules.end())
                     raise_fail(taskData, "A dependency is listed but the module is not loaded");
-                if (*i == mId) break;
+                if (i->modId == mId) break;
                 i++;
             }
             class ModIdAndName mn;
@@ -633,9 +674,9 @@ void ModuleLoader::Perform()
             return;
         }
         // Check to see if this is already loaded
-        for (std::vector<ModuleId>::iterator i = loadedModules.begin(); i < loadedModules.end(); i++)
+        for (std::vector<LoadedModuleData>::iterator i = loadedModules.begin(); i < loadedModules.end(); i++)
         {
-            if (*i == header.thisModuleId)
+            if (i->modId == header.thisModuleId)
             {
                 errorResult = "A module with this signature is already loaded";
                 return;
@@ -647,6 +688,28 @@ void ModuleLoader::Perform()
             errorResult =
                 "Module was exported from a different executable or the executable has changed";
             return;
+        }
+
+        // Add to the loaded module table
+        LoadedModuleData loadMod;
+        loadMod.modId = header.thisModuleId;
+        loadMod.modDependencies.resize(header.dependencyCount);
+
+        // Get the dependencies.  This is only needed to fill in the dependency vector.
+        if (fseek(loadFile, header.dependencies, SEEK_SET) != 0)
+        {
+            errorResult = "Unable to access dependency table";
+            return;
+        }
+        for (unsigned i = 0; i < header.dependencyCount; i++)
+        {
+            ModDependencyEntry modDepEntry;
+            if (fread(&modDepEntry, sizeof(ModDependencyEntry), 1, loadFile) != 1)
+            {
+                errorResult = "Unable to load dependency entry";
+                return;
+            }
+            loadMod.modDependencies.push_back(modDepEntry.depId);
         }
 
         // We could check the dependency table at this point but other than perhaps improving
@@ -769,8 +832,8 @@ void ModuleLoader::Perform()
         }
         loadedModId = header.thisModuleId;
 
-        // Add to the loaded module table
-        loadedModules.push_back(header.thisModuleId);
+        // Now add the entry to the loaded module table
+        loadedModules.push_back(loadMod);
     }
     catch (const std::bad_alloc&)
     {
@@ -894,10 +957,10 @@ POLYUNSIGNED PolyShowLoadedModules(POLYUNSIGNED threadId)
 
     try {
         // Iterate over the table in reverse order so  the resulting list is in the order the modules were loaded.
-        for (std::vector<ModuleId>::reverse_iterator i = loadedModules.rbegin(); i < loadedModules.rend(); i++)
+        for (std::vector<LoadedModuleData>::reverse_iterator i = loadedModules.rbegin(); i < loadedModules.rend(); i++)
         {
             // Convert the module Id to a vector of bytes.  The representation is the same as a string.
-            Handle idHandle = moduleIdAsByteVector(taskData, *i);
+            Handle idHandle = moduleIdAsByteVector(taskData, i->modId);
             ML_Cons_Cell* next = (ML_Cons_Cell*)alloc(taskData, sizeof(ML_Cons_Cell) / sizeof(PolyWord));
             next->h = idHandle->Word();
             next->t = result->Word();
@@ -1025,7 +1088,7 @@ public:
 void ModuleReleaser::Perform()
 {
     try {
-        std::vector<ModuleId>::iterator mod = loadedModules.begin();
+        std::vector<LoadedModuleData>::iterator mod = loadedModules.begin();
         while (true)
         {
             if (mod == loadedModules.end())
@@ -1033,7 +1096,7 @@ void ModuleReleaser::Perform()
                 errorMessage = "Module is not loaded";
                 return;
             }
-            if (*mod == moduleId)
+            if (mod->modId == moduleId)
                 break;
             else mod++;
         }

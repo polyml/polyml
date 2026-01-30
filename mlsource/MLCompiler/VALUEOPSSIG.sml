@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
         
-    Modified David C. J. Matthews 2009-2015.
+    Modified David C. J. Matthews 2009-2015, 2025.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -38,19 +38,18 @@ sig
           endLine: FixedInt.int, endPosition: FixedInt.int }
     type locationProp
     type typeId
-    type typeVarForm
-    type typeVarMap
     type level
     type machineWord
+    type valueType
 
     (* Construction functions. *)
-    val mkGvar:        string * types * codetree * locationProp list -> values
-    val mkValVar:      string * types * locationProp list -> values
-    val mkPattVar:     string * types * locationProp list -> values
+    val mkGvar:        string * valueType * codetree * locationProp list -> values
+    val mkValVar:      string * valueType * locationProp list -> values
+    val mkPattVar:     string * valueType * locationProp list -> values
     val mkSelectedVar: values * structVals * locationProp list -> values
-    val mkGconstr:     string * types * codetree * bool * int * locationProp list -> values
-    val mkGex:         string * types * codetree * locationProp list -> values
-    val mkEx:          string * types * locationProp list -> values
+    val mkGconstr:     string * valueType * codetree * bool * int * locationProp list -> values
+    val mkGex:         string * valueType * bool * codetree * locationProp list -> values
+    val mkEx:          string * valueType * bool * locationProp list -> values
 
 
     type printTypeEnv =
@@ -68,14 +67,13 @@ sig
     val codeStruct:     structVals * level -> codetree
     val codeAccess:     valAccess  * level -> codetree
     val codeVal:
-        values * level * typeVarMap * {value: types, equality: bool, printity: bool} list * lexan * location -> codetree
-    val codeExFunction: values * level * typeVarMap * types list * lexan * location -> codetree
+        values * level * types list * lexan * location -> codetree
+    val codeExFunction: values * level * types list * bool * lexan * location -> codetree
     val applyFunction:
-        values * codetree * level * typeVarMap * {value: types, equality: bool, printity: bool} list *
+        values * codetree * level * types list *
             lexan * location -> codetree
-    val getOverloadInstance: string * types * bool -> codetree*string
-    val makeGuard:      values * types list * codetree * level * typeVarMap -> codetree 
-    val makeInverse:    values * types list * codetree * level * typeVarMap -> codetree
+    val makeGuard:      values * codetree * level -> codetree 
+    val makeInverse:    values * codetree * level -> codetree
                     
     val lookupStructure:  string * {lookupStruct: string -> structVals option} * 
                             string * (string -> unit) -> structVals option
@@ -96,8 +94,6 @@ sig
 
     val codeLocation: location -> codetree
 
-    val getPolymorphism: values * types * typeVarMap -> {value: types, equality: bool, printity: bool} list
-    
     val getLiteralValue: values * string * types * (string->unit) -> machineWord option
 
     (* Types that can be shared. *)
@@ -118,9 +114,8 @@ sig
         type pretty         = pretty
         type locationProp   = locationProp
         type typeId         = typeId
-        type typeVarForm    = typeVarForm
-        type typeVarMap     = typeVarMap
         type level          = level
         type machineWord    = machineWord
+        type valueType      = valueType
     end
 end;

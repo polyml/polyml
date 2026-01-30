@@ -44,9 +44,9 @@ struct
 
     (* The static environment contains these kinds of entries. *)
     datatype environEntry =
-        EnvValue of string * types * locationProp list
-    |   EnvException of string * types * locationProp list
-    |   EnvVConstr of string * types * bool * int * locationProp list
+        EnvValue of string * valueType * locationProp list
+    |   EnvException of string * valueType * bool * locationProp list
+    |   EnvVConstr of string * valueType * bool * int * locationProp list
     |   EnvTypeid of { original: typeId, freeId: typeId }
     |   EnvStructure of string * signatures * locationProp list
     |   EnvTConstr of string * typeConstrSet
@@ -176,22 +176,12 @@ struct
 
     end
 
-(*    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
-    |   tcIsAbbreviation _ = false*)
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            typeVars   = typeVars,
-            identifier = uid,
-            locations = locations
-        }
-
     (* Values must be copied so that compile-time type IDs are replaced by their run-time values. *)
-    fun makeTypeConstr (state: debugState) (TypeConstrSet(TypeConstrs {identifier, name, typeVars, locations, ...}, (*tcConstructors*) _)) =
+    fun makeTypeConstr (state: debugState) (TypeConstrSet(TypeConstrs {identifier, name, locations, ...}, (*tcConstructors*) _)) =
         let
             val typeID = searchType state identifier
-            val newTypeCons = makeTypeConstructor(name, typeVars, typeID, locations)
+            val newTypeCons =
+                TypeConstrs { name = name, identifier = typeID, locations = locations }
 
             val newValConstrs = (*map copyAConstructor tcConstructors*) []
         in
@@ -212,40 +202,34 @@ struct
     end
 
     local
-        fun runTimeType (state: debugState) ty =
+        fun runTimeType (state: debugState) (ValueType(ty, templates)) =
         let
             fun copyId(TypeId{idKind=Free _, access=Global _ , ...}) = NONE (* Use original *)
             |   copyId id = SOME(searchType state id)
         in
-                copyType (ty, fn x => x,
-                    fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
+            ValueType(#1(copyType (ty,
+                    fn tcon => copyTypeConstr (tcon, copyId, fn s => s))), templates)
         end
-    
-        (* Return the value as a constant.  In almost all cases we just return the value.
-           The exception is when we have an equality type variable.  In that case we must
-           return a function because we will use applyToInstanceType to apply it to the
-           instance type(s).
-           N.B.  This is probably because of the way that allowGeneralisation side-effects
-           the type variables resulting in local type variables becoming generic. *)
-        fun getValue(valu, ty) =
-        let
-            val filterTypeVars = List.filter (fn tv => not TYPEIDCODE.justForEqualityTypes orelse tvEquality tv)
-            val polyVars = filterTypeVars (getPolyTypeVars(ty, fn _ => NONE))
-            val nPolyVars = List.length polyVars
-        in
-            if nPolyVars = 0
-            then mkConst valu
-            else mkInlproc(mkConst valu, nPolyVars, "poly", [], 0)
-        end
+
+        fun makeValueConstr (name, typeOf, nullary, constrs, access, locations) : values =
+            Value
+            { 
+              name    = name,
+              typeOf  = typeOf,
+              access  = access,
+              class   = Constructor { nullary = nullary, ofConstrs = constrs },
+              locations = locations,
+              references = NONE
+            }
     in
         fun makeValue state (name, ty, location, valu) =
-            mkGvar(name, runTimeType state ty, getValue(valu, ty), location)
+            mkGvar(name, runTimeType state ty, mkConst valu, location)
     
-        and makeException state (name, ty, location, valu) =
-            mkGex(name, runTimeType state ty, getValue(valu, ty), location)
+        and makeException state (name, ty, nullary, location, valu) =
+            mkGex(name, runTimeType state ty, nullary, mkConst valu, location)
    
         and makeConstructor state (name, ty, nullary, count, location, valu) =
-                makeValueConstr(name, runTimeType state ty, nullary, count, Global(getValue(valu, ty)), location)
+                makeValueConstr(name, runTimeType state ty, nullary, count, Global(mkConst valu), location)
 
         and makeAnonymousValue state (ty, valu) =
             makeValue state ("", ty, [], valu)
@@ -284,22 +268,22 @@ struct
         (newDecs, debugEnv)
     end
 
-    fun makeValDebugEntries (vars: values list, debugEnv: debuggerStatus, level, lex, mkAddr, typeVarMap) =
+    fun makeValDebugEntries (vars: values list, debugEnv: debuggerStatus, level, lex, mkAddr) =
     if getParameter debugTag (LEX.debugParams lex)
     then
         let
             fun loadVar (var, (decs, {staticEnv, dynEnv, lastLoc, ...})) =
                 let
                     val loadVal =
-                        codeVal (var, level, typeVarMap, [], lex, LEX.nullLocation)
+                        codeVal (var, level, [], lex, LEX.nullLocation)
                     val newEnv =
                     (* Create a new entry in the environment. *)
                           mkDatatype [ loadVal (* Value. *), dynEnv level ]
                     val { dec, load } = multipleUses (newEnv, fn () => mkAddr 1, level)
                     val ctEntry =
                         case var of
-                            Value{class=Exception, name, typeOf, locations, ...} =>
-                                EnvException(name, typeOf, locations)
+                            Value{class=Exception{nullary}, name, typeOf, locations, ...} =>
+                                EnvException(name, typeOf, nullary, locations)
                         |   Value{class=Constructor{nullary, ofConstrs, ...}, name, typeOf, locations, ...} =>
                                 EnvVConstr(name, typeOf, nullary, ofConstrs, locations)
                         |   Value{name, typeOf, locations, ...} =>
@@ -593,7 +577,7 @@ struct
         type lexan          = lexan
         type codeBinding    = codeBinding
         type codetree       = codetree
-        type typeVarMap     = typeVarMap
         type debuggerStatus = debuggerStatus
+        type valueType      = valueType
     end
 end;

@@ -3,7 +3,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2016 David C.J. Matthews
+    Copyright (c) 2000-9, 2016, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -26,11 +26,9 @@ sig
     type lexan;
     type pretty;
     type typeId;
-    type typeVarMap
     type codetree;
     type env;
-    type typeConstrs;
-    type typeVarForm
+    type typeConstrs
     type values;
     type structVals;
     type environEntry;
@@ -40,6 +38,10 @@ sig
     type codeBinding
     type level
     type valueConstr
+    type parseTypeVar
+    type instanceType
+    type tvIndex
+    type typeConstrSet
 
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
@@ -51,6 +53,9 @@ sig
          next: (unit -> exportTree) option,
          previous: (unit -> exportTree) option}
     type typeIdDescription = { location: location, name: string, description: string }
+    type printTypeEnv =
+        { lookupType: string -> (typeConstrSet * (int->typeId) option) option,
+          lookupStruct: string -> (structVals * (int->typeId) option) option}
 
     (* An identifier is just a name. In the second pass it is associated
      with a particular declaration and the type is assigned into the
@@ -59,7 +64,6 @@ sig
      type of the value will be 'a * 'a -> bool but the type of a particular
      occurence, i.e. the type of the identifier must be int * int -> bool,
      say, after all the unification has been done. *)
-
     type parsetree and valbind and fvalbind and fvalclause and typebind
     and datatypebind and exbind and labelRecEntry and matchtree;
 
@@ -77,8 +81,8 @@ sig
     val mkTupleTree : parsetree list * location -> parsetree;
 
     type bindEnv =
-        { lookup: string -> typeVarForm option,
-          apply: (string * typeVarForm -> unit) -> unit }
+        { lookup: string -> parseTypeVar option,
+          apply: (string * parseTypeVar -> unit) -> unit }
 
     val mkValDeclaration :
         valbind list * bindEnv * bindEnv * location ->  parsetree;
@@ -104,9 +108,9 @@ sig
         { newType: string, oldType: string,
           newLoc: location, oldLoc: location, location: location } -> parsetree;
     val mkAbstypeDeclaration :
-    datatypebind list * typebind list * parsetree list * location -> parsetree;
-    val mkTypeBinding : string * typeVarForm list * typeParsetree option * bool * location * location -> typebind;
-    val mkDatatypeBinding : string * typeVarForm list * valueConstr list * location * location -> datatypebind
+      datatypebind list * typebind list * parsetree list * location -> parsetree;
+    val mkTypeBinding : string * parseTypeVar list * typeParsetree option * bool * location * location -> typebind;
+    val mkDatatypeBinding : string * parseTypeVar list * valueConstr list * location * location -> datatypebind
     val mkValueConstr : string * typeParsetree option * location -> valueConstr
     val mkExBinding : string * parsetree * typeParsetree option * location * location -> exbind;
     val mkLabelledTree : labelRecEntry list * bool * location -> parsetree;
@@ -127,10 +131,8 @@ sig
     val emptyTree : parsetree;
 
     val pass2:
-        parsetree * (bool * bool * (typeVarForm list * types) * typeIdDescription -> typeId) *
-        env * lexan * (int -> bool) -> types
-
-    val setLeastGeneralTypes: parsetree * lexan -> unit
+        parsetree * (bool * bool * (parseTypeVar list * types option) * typeIdDescription -> typeId) *
+        env * lexan * (int -> bool) -> instanceType
 
     (* Inherited from PrintAndExportParsetree *)
     val displayParsetree: parsetree * FixedInt.int -> pretty;
@@ -139,9 +141,31 @@ sig
     (* Inherited from CodegenParsetree *)
     type debuggerStatus
     val gencode:
-        parsetree * lexan * debuggerStatus * level * (int->int) * typeVarMap * string *
-            (codeBinding list * debuggerStatus * typeVarMap -> codeBinding list * debuggerStatus)
+        parsetree * lexan * debuggerStatus * level * (int->int) * string *
+            (codeBinding list * debuggerStatus -> codeBinding list * debuggerStatus)
             -> codeBinding list * debuggerStatus
+
+    val ParseTypeBad: typeParsetree
+    val makeParseTypeConstruction:
+        (string * location) * (typeParsetree list * location) * location -> typeParsetree
+    val makeParseTypeProduct: typeParsetree list * location -> typeParsetree
+    val makeParseTypeFunction: typeParsetree * typeParsetree * location -> typeParsetree
+    val makeParseTypeLabelled:
+        ((string * location) * typeParsetree * location) list * bool * location -> typeParsetree
+    val makeParseTypeId: parseTypeVar * location -> typeParsetree
+    val makeParseTypeFreeVar: string * bool -> parseTypeVar
+    val makeParseTypeBoundVar: string * tvIndex -> parseTypeVar
+    val parseTypeVarError: parseTypeVar
+    (* Set a free type variable to either an outer one or to the current level. *)
+    val setParseTypeVar: parseTypeVar * parseTypeVar option * int -> unit
+    val getBoundTypeVar: parseTypeVar -> types
+    val unitTree: location -> typeParsetree
+    val displayTypeParse: typeParsetree * FixedInt.int * printTypeEnv -> pretty
+    (* A list of type variables. *)
+    val displayTypeVariables: parseTypeVar list * FixedInt.int -> pretty list
+    val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;
+
+    val typeExportTree: navigation * typeParsetree -> exportTree
 
     (* Types that can be shared. *)
     structure Sharing:
@@ -156,7 +180,7 @@ sig
         and  typeId = typeId
         and  structVals = structVals
         and  typeConstrs = typeConstrs
-        and  typeVarForm = typeVarForm
+        and  parseTypeVar = parseTypeVar
         and  env = env
         and  infixity = infixity
         and  structureIdentForm = structureIdentForm
@@ -170,9 +194,11 @@ sig
         and  exbind = exbind
         and  labelRecEntry = labelRecEntry
         and  ptProperties = ptProperties
-        and  matchtree = matchtree
-        and  typeVarMap = typeVarMap
+        and  matchtree   = matchtree
         and  level = level
         and  debuggerStatus = debuggerStatus
+        and  instanceType = instanceType
+        and  tvIndex = tvIndex
+        and  typeConstrSet = typeConstrSet
     end
 end (* PARSETREE export signature *);

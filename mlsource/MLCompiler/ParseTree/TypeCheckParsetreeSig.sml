@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013 David C.J. Matthews
+    Copyright (c) 2013, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,10 +20,13 @@ signature TypeCheckParsetreeSig =
 sig
     type parsetree
     type types
-    type typeVarForm
+    type parseTypeVar
     type typeId
     type lexan
     type env
+    type instanceType
+    type typeParsetree
+    type typeConstrSet
 
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
@@ -32,18 +35,25 @@ sig
     type typeIdDescription = { location: location, name: string, description: string }
 
     val pass2:
-        parsetree * (bool * bool * (typeVarForm list * types) * typeIdDescription -> typeId) *
-        env * lexan * (int -> bool) -> types
+        parsetree * (bool * bool * (parseTypeVar list * types option) * typeIdDescription -> typeId) *
+        env * lexan * (int -> bool) -> instanceType
 
-    val setLeastGeneralTypes: parsetree * lexan -> unit
-    
+    (* Fill in the values of type variables and make checks. *)
+    val assignTypes: typeParsetree * (string * location -> typeConstrSet) * lexan -> types;
+    val setParseTypeVar: parseTypeVar * parseTypeVar option * int -> unit
+    val getBoundTypeVar: parseTypeVar -> types
+    val unitTree: location -> typeParsetree
+
     structure Sharing:
     sig
         type parsetree = parsetree
-        type types = types
-        type typeVarForm = typeVarForm
-        type typeId = typeId
-        type lexan = lexan
-        type env = env
+        and  types = types
+        and  parseTypeVar = parseTypeVar
+        and  typeId = typeId
+        and  lexan = lexan
+        and  env = env
+        and  instanceType = instanceType
+        and  typeParsetree = typeParsetree
+        and  typeConstrSet = typeConstrSet
     end
 end;

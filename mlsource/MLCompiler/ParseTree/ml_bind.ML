@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2025 David C.J. Matthews
     
     Derived from previous work
     Copyright (c) 2000
@@ -35,6 +35,7 @@ local
             structure TYPETREE   = TypeTree
             structure VALUEOPS   = ValueOps
             structure PRETTY     = Pretty
+            structure MISC          = Misc
          )
 
     structure ExportTree =
@@ -61,8 +62,8 @@ local
             structure UTILITIES  = Utilities
             structure PRETTY     = Pretty
             structure COPIER     = CopierStruct
-            structure PRINTTABLE = PrintTable
             structure DATATYPEREP = DatatypeRep
+            structure DEBUG      = Debug
         )
 
     structure MatchCompiler =

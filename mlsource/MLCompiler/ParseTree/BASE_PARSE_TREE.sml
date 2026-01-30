@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2016 David C.J. Matthews
+    Copyright (c) 2013-2016, 2025 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -55,7 +55,7 @@ struct
          say, after all the unification has been done. *)
         {
             name: string,
-            expType: types ref,
+            expType: (instanceType * types list) ref,
             value: values ref,
             location: location,
             possible: (unit -> string list) ref (* Used with the IDE. *)
@@ -65,11 +65,11 @@ struct
            (* Literal constants may be overloaded on more than one type. The
               types are specified by installing appropriate conversion functions:
               convInt, convReal, convChar, convString and convWord. *)
-            { converter: values, expType: types ref, literal: string, location: location }
+            { converter: values, expType: instanceType ref, literal: string, location: location }
 
-    |   Applic              of
+    |   Applic of
             (* Function application *)
-            { f: parsetree, arg: parsetree, location: location, isInfix: bool, expType: types ref }
+            { f: parsetree, arg: parsetree, location: location, isInfix: bool, expType: instanceType ref }
 
     |   Cond                of
             (* Conditional *)
@@ -87,20 +87,20 @@ struct
     |   ValDeclaration      of
         {
             dec:    valbind list,
-            explicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
-            implicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
+            explicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
+            implicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
             location: location
         }
 
     |   FunDeclaration      of
         {
             dec:    fvalbind list,
-            explicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
-            implicit: {lookup: string -> typeVarForm option,
-                       apply: (string * typeVarForm -> unit) -> unit },
+            explicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
+            implicit: {lookup: string -> parseTypeVar option,
+                       apply: (string * parseTypeVar -> unit) -> unit },
             location: location
         } 
 
@@ -126,8 +126,7 @@ struct
              variable is given the name of the object which is to be matched. *)
             { var: parsetree, pattern: parsetree, location: location }
 
-    |   Fn                  of
-            { matches: matchtree list, location: location, expType: types ref }
+    |   Fn of { matches: matchtree list, location: location }
 
     |   Localdec            of (* Local dec in dec and let dec in exp. *)
         {
@@ -181,7 +180,7 @@ struct
 
     |   Case                of
             (* Case-statement *)
-            { test: parsetree, match: matchtree list, location: location, listLocation: location, expType: types ref }
+            { test: parsetree, match: matchtree list, location: location, listLocation: location }
 
     |   Andalso             of { first: parsetree, second: parsetree, location: location } 
 
@@ -195,8 +194,7 @@ struct
     |   Selector            of
             { name: string, labType: types, typeof: types, location: location }
 
-    |   List                of
-            { elements: parsetree list, location: location, expType: types ref }
+    |   List of { elements: parsetree list, location: location }
     |   EmptyTree
     |   WildCard            of location
     |   Unit                of location
@@ -242,7 +240,7 @@ struct
         TypeBind of
          {
            name: string,
-           typeVars: typeVarForm list,
+           typeVars: parseTypeVar list,
            decType: typeParsetree option,
            isEqtype: bool, (* True if this was an eqtype in a signature. *)
            tcon:     typeConstrSet ref,
@@ -254,7 +252,7 @@ struct
         DatatypeBind of
          {
            name:          string,
-           typeVars:      typeVarForm list,
+           typeVars:      parseTypeVar list,
            constrs:       valueConstr list,
            tcon:          typeConstrSet ref,
            nameLoc:       location,
@@ -286,6 +284,30 @@ struct
             breakPoint: breakPoint option ref
         } 
 
+    (* Parse tree for types.  This is used to represent types in the source. *)
+    and typeParsetree =
+        ParseTypeConstruction of
+            { name: string, args: typeParsetree list,
+              location: location, nameLoc: location, argLoc: location,
+              (* foundConstructor is set to the constructor when it has been
+                 looked up.  This allows us to get the location where it was
+                 declared if we export the parse-tree. *)
+              foundConstructor: typeConstrs ref }
+    |   ParseTypeProduct of
+            { fields: typeParsetree list, location: location }
+    |   ParseTypeFunction of
+            { argType: typeParsetree, resultType: typeParsetree, location: location }
+    |   ParseTypeLabelled of
+            { fields: ((string * location) * typeParsetree * location) list,
+              frozen: bool, location: location }
+    |   ParseTypeId of { types: parseTypeVar, location: location }
+    |   ParseTypeBad (* Place holder for errors. *)
+
+    and parseTypeVar =
+        ParseTypeFreeVar of { name: string, equality: bool, typeVar: types option ref }
+    |   ParseTypeBoundVar of { name: string, index: tvIndex }
+    |   ParseTypeError (* Error case *)
+
     (* Name of a structure. Used only in an ``open'' declaration. *)
     withtype structureIdentForm = 
     {
@@ -314,7 +336,7 @@ struct
     structure Sharing =
     struct
         type types = types
-        and  typeVarForm = typeVarForm
+        and  parseTypeVar = parseTypeVar
         and  typeConstrSet = typeConstrSet
         and  values = values
         and  infixity = infixity
@@ -328,6 +350,9 @@ struct
         and  datatypebind = datatypebind
         and  exbind = exbind
         and  matchtree = matchtree
+        and  instanceType = instanceType
+        and  typeConstrs = typeConstrs
+        and  tvIndex = tvIndex
     end
 
 end;

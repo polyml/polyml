@@ -58,18 +58,19 @@ struct
   
     fun isIdent               (Ident _)               = true | isIdent _               = false;
   
-    val unit      = Unit;
-    val wildCard  = WildCard;
-    val emptyTree = EmptyTree;
+    val unit      = Unit
+    val wildCard  = WildCard
+    val emptyTree = EmptyTree
+    val badInstance = SimpleInstance BadType
 
     (* A general type variable for an expression.  This is used to record the type. *)
-    fun makeGeneralTypeVar() = mkTypeVar(generalisable, false, false, false)
+    fun makeGeneralTypeVar() = mkTypeVar(Generalisable, false)
   
     fun mkIdent (name, loc) : parsetree = 
       Ident
         {
           name   = name,
-          expType = ref EmptyType,
+          expType = ref(badInstance, []),
           value  = ref undefinedValue,
           location = loc,
           possible = ref(fn () => [])
@@ -77,11 +78,10 @@ struct
     
     local    
        (* Make overloaded functions for the conversions. *)
-       (* For the moment we make the type string->t and raise an exception
-          if the constant cannot be converted. *)
-       val ty      = mkOverloadSet[]
-       val funType = mkFunctionType (stringType, ty);
-       fun mkOverloaded name : values = makeOverloaded (name, funType, TypeDep)
+        val funType = mkFunctionType (stringType, BoundTypeVar("'a", TVIndex 0))
+        fun mkOverloaded name  =
+            Value{ name = name, typeOf = ValueType(funType, [TemplOverload name]), access = Overloaded TypeDep,
+                class = ValBound, locations = [DeclaredAt inBasis], references = NONE}
     in
         val convString = mkOverloaded "convString"
         and convInt = mkOverloaded "convInt"
@@ -91,19 +91,19 @@ struct
     end;
 
     fun mkString(s: string, loc): parsetree =
-        Literal{converter=convString, literal=s, expType=ref EmptyType, location=loc};
+        Literal{converter=convString, literal=s, expType=ref badInstance, location=loc};
     
     fun mkInt  (i : string, loc) : parsetree =
-        Literal{converter=convInt, literal=i, expType=ref EmptyType, location=loc};
+        Literal{converter=convInt, literal=i, expType=ref badInstance, location=loc};
     
     fun mkReal (r : string, loc) : parsetree =
-        Literal{converter=convReal, literal=r, expType=ref EmptyType, location=loc};
+        Literal{converter=convReal, literal=r, expType=ref badInstance, location=loc};
     
     fun mkChar (c : string, loc) : parsetree = 
-        Literal{converter=convChar, literal=c, expType=ref EmptyType, location=loc};
+        Literal{converter=convChar, literal=c, expType=ref badInstance, location=loc};
 
     fun mkWord (w : string, loc) : parsetree =
-        Literal{converter=convWord, literal=w, expType=ref EmptyType, location=loc};
+        Literal{converter=convWord, literal=w, expType=ref badInstance, location=loc};
     
     fun mkApplic (f, arg, loc, isInfix) : parsetree  =
       Applic
@@ -112,8 +112,8 @@ struct
           arg = arg,
           location = loc,
           isInfix = isInfix,
-          expType = ref EmptyType
-        };
+          expType = ref badInstance
+        }
     
     fun mkCond (test, thenpt, elsept, location) : parsetree  = 
         Cond  
@@ -125,12 +125,12 @@ struct
             thenBreak = ref NONE,
             elseBreak = ref NONE
         }
-       
-    fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
+
+    fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref BadType }
 
     type bindEnv =
-        { lookup: string -> typeVarForm option,
-          apply: (string * typeVarForm -> unit) -> unit }
+        { lookup: string -> parseTypeVar option,
+          apply: (string * parseTypeVar -> unit) -> unit }
     
     fun mkValDeclaration (dec, explicit, implicit, location) : parsetree = 
         ValDeclaration 
@@ -187,7 +187,7 @@ struct
     fun mkFunPattern (fPat, lex): funpattern * string * int =
     let
         fun makeId(name, loc) =
-            {name = name, expType = ref EmptyType, location = loc }
+            {name = name, expType = ref BadType, location = loc }
 
         fun unpick (Applic{ f, arg, isInfix, ... }) =
                 (* "Application" of function to a parameter. *)
@@ -213,13 +213,13 @@ struct
 
         |   unpick (Ident{ name, location, ...}) =
             {
-                ident={ name = name, location = location, expType = ref EmptyType},
+                ident={ name = name, location = location, expType = ref BadType},
                 isInfix=false, args = [], constraint = NONE
             }
 
         |   unpick (Parenthesised(Applic{ f = Ident { name, location, ...}, isInfix=true, arg, ... }, _)) =
             {
-                ident={ name = name, location = location, expType = ref EmptyType},
+                ident={ name = name, location = location, expType = ref BadType},
                 isInfix=true, args = [arg], constraint = NONE
             }
 
@@ -283,7 +283,7 @@ struct
           breakPoint = ref NONE
         }
 
-    fun mkList(elem, loc) = List{ elements = elem, location = loc, expType = ref EmptyType }
+    fun mkList(elem, loc) = List{ elements = elem, location = loc }
     
     fun mkConstraint (value, given, location) : parsetree = 
       Constraint 
@@ -301,8 +301,7 @@ struct
           location = location
         };
     
-    fun mkFn(matches, location) =
-        Fn { matches = matches, location = location, expType = ref EmptyType }
+    fun mkFn(matches, location) = Fn { matches = matches, location = location }
     
     fun mkMatchTree (vars, exp, location) : matchtree = 
       MatchTree 
@@ -393,7 +392,7 @@ struct
        {
          recList = recList,
          frozen  = frozen,
-         expType  = ref EmptyType,
+         expType  = ref BadType,
          location = location
        };
        
@@ -403,7 +402,7 @@ struct
         nameLoc = nameLoc,
         valOrPat = valOrPat,
         fullLocation = fullLocation,
-        expType = ref EmptyType
+        expType = ref BadType
     }
 
     fun mkSelector(name, location) : parsetree =
@@ -449,9 +448,8 @@ struct
             test  = test,
             match = match,
             location = location,
-            listLocation = listLocation,
-            expType = ref EmptyType
-        };
+            listLocation = listLocation
+        }
       
     fun mkAndalso (first, second, location) : parsetree =
       Andalso
@@ -482,6 +480,35 @@ struct
     val mkExDeclaration  : exbind list * location -> parsetree = ExDeclaration;  
     
     val mkParenthesised = Parenthesised
+    
+    fun makeParseTypeConstruction((constrName, nameLoc), (args, argLoc), location) =
+        ParseTypeConstruction{
+            name = constrName, nameLoc = nameLoc, args = args, argLoc = argLoc,
+            location = location, foundConstructor = ref undefConstr }
+
+    fun makeParseTypeProduct(recList, location) =
+        ParseTypeProduct{ fields = recList, location = location }
+
+    fun makeParseTypeFunction(arg, result, location) =
+        ParseTypeFunction{ argType = arg, resultType = result, location = location }
+
+    fun makeParseTypeLabelled(recList, frozen, location) =
+        ParseTypeLabelled{ fields = recList, frozen = frozen, location = location }
+
+    fun makeParseTypeId(types, location) =
+        ParseTypeId{ types = types, location = location }
+
+    (* Free type variables can appear at various places in an ML program and denote the same type
+       variable at each occurrence.  *)
+    fun makeParseTypeFreeVar(name, isEq) =
+        ParseTypeFreeVar{ name=name, typeVar = ref NONE, equality=isEq }
+
+    (* Bound type variables appear in type and datatype definitions. *)
+    fun makeParseTypeBoundVar(name, index) =
+        ParseTypeBoundVar{ name=name, index=index }
+    
+    val parseTypeVarError = ParseTypeError
+
 
     (* Types that can be shared. *)
     structure Sharing =
@@ -496,7 +523,7 @@ struct
         and  typeId     = typeId
         and  structVals = structVals
         and  typeConstrs= typeConstrs
-        and  typeVarForm=typeVarForm
+        and  parseTypeVar=parseTypeVar
         and  env        = env
         and  infixity   = infixity
         and  structureIdentForm = structureIdentForm
@@ -511,9 +538,11 @@ struct
         and  labelRecEntry=labelRecEntry
         and  ptProperties = ptProperties
         and  matchtree   = matchtree
-        and  typeVarMap = typeVarMap
         and  level = level
         and  debuggerStatus   = debuggerStatus
+        and  instanceType = instanceType
+        and  tvIndex = tvIndex
+        and  typeConstrSet = typeConstrSet
     end
 
 end (* PARSETREE *);

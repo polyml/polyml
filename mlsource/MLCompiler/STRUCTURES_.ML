@@ -114,7 +114,7 @@ struct
     (* Description of the actions to perform when a structure matches a signature. *)
     datatype valueMatching =
         ValueMatch of
-            { sourceValue: values, targetType: types, coercion: valueCoercions }
+            { sourceValue: values, coercion: valueCoercions }
     |   StructureMatch of
             { sourceStructure: structVals, contentsMatch: structureMatch}
     |   TypeIdMatch of
@@ -122,7 +122,7 @@ struct
  
     and valueCoercions = (* The coercions that may apply to a value. *)
         NoCoercion
-    |   ExceptionToValue    
+    |   ExceptionToValue of bool
     |   ConstructorToValue
 
     withtype structureMatch = (int * valueMatching) list
@@ -852,7 +852,6 @@ struct
 
     fun idAccess (TypeId { access, ...}) = access 
     fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
     fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
@@ -860,11 +859,9 @@ struct
 
     val tcEquality = isEquality o tcIdentifier;
 
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
-
-    fun tsConstructors(TypeConstrSet(_, tvs)) = tvs
 
     (* TODO: If the item being errored is in a substructure it currently doesn't report
        the name of the substructure. *)
@@ -955,59 +952,45 @@ struct
     fun matchErrorReport(lex, structTypeEnv, sigTypeEnv) =
         unifyTypesErrorReport(lex, structTypeEnv, sigTypeEnv, "match")
 
-    datatype matchTypeResult =
-        MatchError of matchResult
-    |   MatchSuccess of types
-
-    (* Check that two types match.  Returns either an error result or the set
-       of polymorphic variables for the source and the target. *)
-    fun matchTypes (candidate, target, targMap: int -> typeId option, _) =
+    (* Check that two types match. *)
+    fun matchTypes (candidValType, targetValType, targMap: int -> typeId option) =
     let
         fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = targMap offset
         |   copyId _ = NONE
-        fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn x => x, fn s => s)
-        fun copyTarget t = (* Leave type variables. *)
-            copyType (t, fn x => x, copyATypeConstr);
-        val copiedTarget = copyTarget target
-        (* Do the match to a version of the candidate with copies of the
-           type variables so that we can instantiate them.  We could do
-           this by passing in a mapping function but the problem is that
-           if we have a type variable that gets unified to another variable
-           we will not map it properly if it occurs again (we call "eventual"
-           and get the second tv before calling the map function so we get a
-           second copy and not the first copy). *)
-        val (copiedCandidate : types, _) = generalise candidate;
+
+        val copiedTarget = createNonGeneralisableInstance(targetValType, copyId)
+        val copiedCandidate = #1(generalise candidValType)
     in
-        case unifyTypes (copiedCandidate, copiedTarget) of
-            NONE => (* Succeeded. Return the unified type.  Either will do. *)
-                MatchSuccess copiedTarget
-        |   SOME error => MatchError error
+        unifyTypes (copiedCandidate, copiedTarget)
     end;
 
-    (* Check that a matching has succeeded, and check the value
-       constructors if they are datatypes. *)
-    fun checkTypeConstrs (candidSet as TypeConstrSet(candid, candidConstrs),
-                          targetSet as TypeConstrSet(target, targetConstrs),
+    (* Check that a matching has succeeded, and check the value constructors if they are datatypes. *)
+    fun checkTypeConstrs (candidSet as TypeConstrSet(candid as TypeConstrs{name=candidName, ...}, candidConstrs),
+                          targetSet as TypeConstrSet(target as TypeConstrs{name=targetName, ...}, targetConstrs),
                           targTypeMap: int -> typeId option, lex, near, lno, typeEnv, structPath) =
     let
-        val candidName : string = tcName candid;
-        val targetName : string = tcName target;
-        val tvars = List.map TypeVar (tcTypeVars target); (* either will do *)
+        (* Create non-unifiable type variables as the arguments. *)
+        val tvars =
+            List.tabulate(tcArity candid,
+                fn n => FreeTypeVar{ name = makeTypeVariableName(n, false), equality=false, 
+                                    level=NotGeneralisable 0, uid=makeUniqueId() })
+        
         (* If we get an error in the datatype itself print the full datatype. *)
         val printTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
         val errorInDatatype =
             sigStructMatchMsg(lex, near, lno, structPath)(fn t => displayTypeConstrs(t, errorDepth lex, printTypeEnv))
+        (* It isn't clear what this achieves that simply comparing the IDs for the type constructors doesn't. *)
     in
         if tcArity candid <> tcArity target
         then () (* Have already given the error message. *)
         else (* Check the type constructors themselves first. This checks
                 that the sharing constraints have been satisfied. *)
-        case matchTypes (mkTypeConstruction (candidName, candid, tvars, []),
-                         mkTypeConstruction (targetName, target, tvars, []), 
-                         targTypeMap, lex) of
-                MatchError error => (* Report the error. *)
+        case matchTypes ((mkTypeConstruction (candidName, candid, tvars, []), []),
+                         (mkTypeConstruction (targetName, target, tvars, []), []), 
+                         targTypeMap) of
+                SOME error => (* Report the error. *)
                     errorInDatatype(candidSet, targetSet, matchErrorReport(lex, typeEnv, typeEnv) error)
-            |   MatchSuccess _ =>
+            |   NONE =>
                 (* We have already checked for matching a type in the structure to a datatype in the signature.
                    In ML97 we can't rebind an identifier in a signature so each constructor for this datatype
                    must be present in the signature i.e. it can't be hidden by a constructor for another datatype.
@@ -1039,6 +1022,8 @@ struct
     fun matchSigs(originalCandidate, originalTarget, near, lno, lex, typeIdEnv, typeEnv)
                         :(int -> typeId) * (int * valueMatching) list =
     let
+        (* TODO: This still copies the types in the candidate and target.  Why can't we just
+           compose the maps?  *)
         val candidate = (* The structure. *)
         let
             val Signatures { typeIdMap, firstBoundIndex, boundIds, ... } = originalCandidate
@@ -1175,23 +1160,25 @@ struct
                 if tagIs typeConstrVar dVal
                 then (* Types *)
                 let (* For each type in the target ... *)
-                    val target = tagProject typeConstrVar dVal
+                    val target as TypeConstrSet(_, targConstrs) = tagProject typeConstrVar dVal
                 in
                     (* Find a candidate with the same name. *)
                     case univLookup (sigTab candidate, typeConstrVar, dName) of
-                        SOME candid =>
+                        SOME (candid as TypeConstrSet(_, candConstrs)) =>
                             let
                                 (* We don't actually check the value constructors here, just load them if they
                                    match.  Because of the no-redefinition rule value constructors in the signature
-                                   must also be present in the value environment so we check them there. *)
-                                fun matchConstructor(source as Value{typeOf, ...}, Value{access=Formal addr, ...}, matches) =
+                                   must also be present in the value environment so we check them there.
+                                   Note: this means we actually pass the constructors twice, once in the value
+                                   environment and also in the constructor set. *)
+                                fun matchConstructor(source, Value{access=Formal addr, ...}, matches) =
                                         (addr,
-                                            ValueMatch { sourceValue = source, coercion = NoCoercion, targetType = typeOf }) :: matches
+                                            ValueMatch { sourceValue = source, coercion = NoCoercion }) :: matches
                                 |   matchConstructor(_, _, matches) = matches
                             in
                                 (* Now check that the types match. *)
                                 checkTypeConstrs(candid, target, lookupType, lex, near, lno, typeEnv, structPath);
-                                ListPair.foldl matchConstructor matches (tsConstructors candid, tsConstructors target)
+                                ListPair.foldl matchConstructor matches (candConstrs, targConstrs)
                             end
                     |   NONE => matches (* If the lookup failed ignore
                                      the error - we've already reported it in matchNames *)
@@ -1226,7 +1213,7 @@ struct
                 val structureMatches = univFold(sigTab target, matchStructures, [])
             end
 
-            fun displayValue(value as Value {name, locations, typeOf, ...}) =
+            fun displayValue(value as Value {name, locations, typeOf=ValueType(typeOf, _), ...}) =
             let
                 val decLocation =
                     case List.find (fn DeclaredAt _ => true | _ => false) locations of
@@ -1249,21 +1236,21 @@ struct
                     Value{class=Constructor _, ...} =>
                         (* When displaying the constructor show the function type.  We may have rebound
                            the constructor in the candidate structure so that it creates a different datatype. *)
-                        dispVal("constructor", typeOf)
-                |   Value{class=Exception, ...} =>
+                        dispVal("constructor", SimpleInstance typeOf)
+                |   Value{class=Exception _, ...} =>
                         PrettyBlock(0, false, [],
                                 PrettyString "exception" ::
                                 PrettyBreak(1, 3) ::
                                 valName ::
                             (
-                                case getFnArgType typeOf of
-                                   NONE => []
-                                |  SOME excType =>
+                                case typeOf of
+                                    FunctionType{arg=excType, ...} =>
                                     [
                                         PrettyBreak (1, 1), PrettyString "of",
-                                        PrettyBreak (1, 3), display (excType, errorDepth lex, typeEnv) ]
+                                        PrettyBreak (1, 3), display (SimpleInstance excType, errorDepth lex, typeEnv) ]
+                                |   _ => []
                             ))
-                |   _ => dispVal("val", typeOf)    
+                |   _ => dispVal("val", SimpleInstance typeOf)    
             end
 
             local
@@ -1271,11 +1258,11 @@ struct
                 if tagIs valueVar dVal
                 then
                 let
-                    val destVal as Value { typeOf=destTypeOf, class=destClass, access=destAccess, ...} = tagProject valueVar dVal
+                    val destVal as Value { typeOf=ValueType destValType, class=destClass, access=destAccess, ...} = tagProject valueVar dVal
                 in
                     case univLookup (sigTab candidate, valueVar, dName) of
                         NONE => (sigStructMissingMsg(lex, near, lno, structPath) displayValue destVal; matches)
-                    |   SOME (candid as Value { typeOf=sourceTypeOf, class=sourceClass, ...}) =>
+                    |   SOME (candid as Value { typeOf=ValueType sourceValType, class=sourceClass, ...}) =>
                         let
                             (* If the target is a constructor or exception the candidate must be
                                similar.  If the candidate is a constructor or exception this will
@@ -1285,9 +1272,9 @@ struct
                                 case (destClass, sourceClass) of
                                     (Constructor _, Constructor _) => IsOK NoCoercion
                                 |   (Constructor _, _) => IsWrong(PrettyString "Value is not a constructor")
-                                |   (Exception, Exception) => IsOK NoCoercion
-                                |   (Exception, _) => IsWrong(PrettyString "Value is not an exception")
-                                |   (_, Exception) => IsOK ExceptionToValue
+                                |   (Exception _, Exception _) => IsOK NoCoercion
+                                |   (Exception _, _) => IsWrong(PrettyString "Value is not an exception")
+                                |   (_, Exception {nullary}) => IsOK (ExceptionToValue nullary)
                                 |   (_, Constructor _) => IsOK ConstructorToValue
                                 |   _ => IsOK NoCoercion
                         in
@@ -1299,31 +1286,21 @@ struct
                                         matches
                                     )
                             |   IsOK coercion =>
-                                case matchTypes (sourceTypeOf, destTypeOf, lookupType, lex) of
-                                    MatchSuccess instanceType =>
+                                case matchTypes (sourceValType, destValType, lookupType) of
+                                    NONE =>
                                     (
                                         (* If it matches an entry in the signature it counts as being exported
                                            and therefore referenced. *)
                                         case candid of
                                             Value { references=SOME{exportedRef, ...}, ...} => exportedRef := true
                                         |   _ => ();
-                                        (* Add the instance type to the instance types. *)
-                                        case candid of
-                                            Value{ instanceTypes=SOME instanceRef, ...} =>
-                                                (* This has to be generalised before it is added here.
-                                                   Unlike normal unification when matching to a signature
-                                                   any polymorphic variables in the target will not have
-                                                   been generalised. *)
-                                                instanceRef := #1(generalise instanceType) :: !instanceRef
-                                        |   _ => ();
                                         case destAccess of
                                             Formal destAddr =>
                                                 (destAddr,
-                                                    ValueMatch { sourceValue = candid, coercion = coercion,
-                                                                 targetType = instanceType }) :: matches
+                                                    ValueMatch { sourceValue = candid, coercion = coercion  }) :: matches
                                         |   _ => matches (* This could be global. *)
                                     )
-                                |   MatchError error =>
+                                |   SOME error =>
                                     (
                                         sigStructMatchMsg(lex, near, lno, structPath)
                                             displayValue (candid, destVal, matchErrorReport(lex, typeEnv, typeEnv) error);
@@ -1361,13 +1338,6 @@ struct
             case valu of
                 Value {references=SOME{exportedRef, ...}, ...} =>
                     exportedRef := true
-            |   _ => ();
-            (* If we have exported the value without a signature we use
-               the most general type and discard any, possibly less general,
-               references. *)
-            case valu of
-                Value{ typeOf, instanceTypes=SOME instanceRef, ...} =>
-                    instanceRef := [#1(generalise typeOf)]
             |   _ => ()
         end
         else ()
@@ -1398,18 +1368,19 @@ struct
             val v = tagProject valueVar dVal
         in
             case v of
-                Value { access=Formal addr, typeOf, ...} =>
-                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = typeOf }) :: matches
+                Value { access=Formal addr, ...} =>
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion }) :: matches
             |   _ => matches
         end
         else if tagIs typeConstrVar dVal
         then
         let
-            fun matchConstructor(v as Value{access=Formal addr, typeOf, ...}, matches) =
-                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion, targetType = typeOf }) :: matches
+            fun matchConstructor(v as Value{access=Formal addr, ...}, matches) =
+                    (addr, ValueMatch { sourceValue = v, coercion = NoCoercion }) :: matches
             |   matchConstructor(_, matches) = matches
+            val TypeConstrSet(_, tconstrs) = tagProject typeConstrVar dVal
         in
-            List.foldl matchConstructor matches (tsConstructors(tagProject typeConstrVar dVal))
+            List.foldl matchConstructor matches tconstrs
         end
         else matches
     in
@@ -1633,30 +1604,22 @@ struct
                            hidden by later declarations.  We still need the whole value environment in
                            case of datatype replication. *)
                         fun convertConstructor(
-                                valVal as Value{class, typeOf, locations, references, name, instanceTypes, ...},
+                                valVal as Value{class, typeOf, locations, references, name, ...},
                                 (otherConstrs, (addrs, matches))) =
                         let
                             val formalValue =
                                 Value{class=class, name=name, typeOf=typeOf, access=Formal addrs,
-                                      locations=locations, references=references, instanceTypes=instanceTypes}
+                                      locations=locations, references=references}
                         in
                             (formalValue :: otherConstrs,
                                 (addrs + 1,
                                     (addrs,
-                                        ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=typeOf}) :: matches))
+                                        ValueMatch { sourceValue = valVal, coercion = NoCoercion }) :: matches))
                         end
                         val (newConstrs, newAddrMatch) = List.foldl convertConstructor ([], (addrs, matches)) valConstrs
-                        fun makeTypeConstructor (name, typeVars, uid, locations) =
-                            TypeConstrs
-                            {
-                                name       = name,
-                                typeVars   = typeVars,
-                                identifier = uid,
-                                locations = locations
-                            }
                         val newConstructor =
-                            makeTypeConstructor(
-                                tcName typConstr, tcTypeVars typConstr, tcIdentifier typConstr, tcLocations typConstr)
+                            TypeConstrs { name = tcName typConstr, identifier = tcIdentifier typConstr,
+                                locations = tcLocations typConstr }
                     in
                         #enterType finalEnv (dName, TypeConstrSet(newConstructor, List.rev newConstrs));
                         newAddrMatch
@@ -1691,17 +1654,16 @@ struct
                             #enterVal finalEnv (dName, value);
                             (addrs, matches)
                         )
-                    |   Value{class, typeOf, locations, references, instanceTypes, ...} =>
+                    |   Value{class, typeOf, locations, references, ...} =>
                         let
                             val formalValue =
                                 Value{class=class, name=dName, typeOf=typeOf, access=Formal addrs,
-                                      locations=locations, references=references,
-                                      instanceTypes=instanceTypes}
+                                      locations=locations, references=references }
                         in
                             #enterVal finalEnv (dName, formalValue);
                             (addrs + 1,
                                 (addrs,
-                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion, targetType=typeOf}) :: matches)
+                                    ValueMatch { sourceValue = valVal, coercion = NoCoercion }) :: matches)
                         end
                 end
                 else (addrs, matches)
@@ -2002,15 +1964,15 @@ struct
 
             (* Create a new type ID for each new datatype.  Add the structure path to the
                name. *)
-            fun makeId (eq, isdt, (args, EmptyType), { location, name, description }) =
+            fun makeId (eq, isdt, (args, NONE), { location, name, description }) =
                     makeLocalTypeId(List.length args, true, eq, isdt,
                         { location = location, name = structPath ^ name, description = description })
-            |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                    makeTypeFunction(typeVars, decType,
+            |   makeId (_, _, (typeVars, SOME decType), { location, name, description }) =
+                    makeTypeFunction(List.length typeVars, decType,
                         { location = location, name = structPath ^ name, description = description })
 
             (* Process the body and discard the type. *)
-            val _ : types = PARSETREE.pass2 (dec, makeId, Env newEnv, lex, fn _ => false);
+            val _ = PARSETREE.pass2 (dec, makeId, Env newEnv, lex, fn _ => false)
        in
          ()
        end (* pass2Singleton *)
@@ -2114,7 +2076,7 @@ struct
            structure declarations to freeze the types (there's an example on p90 of the
            Definition) but we can't functors to get access to unfrozen free variables because
            that can break the type system.  *)
-        fun checkValueForFreeTypeVariables(name: string, Value{typeOf, ...}) =
+        fun checkValueForFreeTypeVariables(name: string, Value{typeOf=ValueType(typeOf, _), ...}) =
             checkForFreeTypeVariables(name, typeOf, lex, codeForUniqueId)
 
         (* Find all the values in the structure. *)
@@ -2435,7 +2397,7 @@ struct
         pass2TopDec(strs, []);
         (* Mark any exported values as referenced. *)
         #apply newValEnv
-            (fn (s: string, valu: values) =>
+            (fn (s, _) =>
                 (
                     (* If we have exported the value we need to mark it as a
                        reference.  But if the identifier has been rebound we
@@ -2444,13 +2406,6 @@ struct
                     case #lookup newValEnv s of
                         SOME(Value { references=SOME{exportedRef, ...}, ...}) =>
                             exportedRef := true
-                    |   _ => ();
-                    (* Since it's been exported the instance type is the most general type.
-                       We can discard any other instance type info since it cannot be
-                       more general. *)
-                    case valu of
-                        Value{ typeOf, instanceTypes=SOME instanceRef, ...} =>
-                            instanceRef := [#1(generalise typeOf)]
                     |   _ => ()
                 )
             )
@@ -2465,49 +2420,6 @@ struct
       so that "pass4" can find them. *)
     fun gencodeStructs ((strs, _), lex) =
     let
-        (* Before code-generation perform an extra pass through the tree to remove
-           unnecessary polymorphism.  The type-checking computes a most general
-           type for a value, typically a function, but it is frequently used in
-           situations where a less general type would suffice. *)
-        local
-            fun leastGenStructDec(StructureDec { bindings, ... }) =
-                    (* Declarations are independent so can be processed in order. *)
-                    List.app (leastGenStructValue o #value) bindings
-
-            |   leastGenStructDec(CoreLang{dec, ...}) = PARSETREE.setLeastGeneralTypes(dec, lex)
-
-            |   leastGenStructDec(Localdec{decs, body, ...}) =
-                (
-                    (* Process the body in reverse order then the declaration in reverse. *)
-                    List.foldr (fn (d, ()) => leastGenStructDec d) () body;
-                    List.foldr (fn (d, ()) => leastGenStructDec d) () decs
-                )
-
-            and leastGenStructValue(StructureIdent _) = ()
-
-            |   leastGenStructValue(StructDec {alist, ...}) =
-                    (* Declarations in reverse order. *)
-                    List.foldr (fn (d, ()) => leastGenStructDec d) () alist
-
-            |   leastGenStructValue(FunctorAppl {arg, ...}) = leastGenStructValue arg
-
-            |   leastGenStructValue(LetDec {decs, body, ...}) =
-                (
-                    (* First the body then the declarations in reverse. *)
-                    leastGenStructValue body;
-                    List.foldr (fn (d, ()) => leastGenStructDec d) () decs
-                )
-
-            |   leastGenStructValue(SigConstraint {str, ...}) = leastGenStructValue str
-
-            fun leastGenTopDec(StrDec(aStruct, _)) = leastGenStructDec aStruct
-            |   leastGenTopDec(FunctorDec(fbinds, _)) = List.app(fn{body, ...} => leastGenStructValue body) fbinds
-            |   leastGenTopDec(SignatureDec _) = ()
-        in
-            val () = (* These are independent so can be processed in order. *)
-                List.app leastGenTopDec strs
-        end
-    
     (* Apply a function which returns a pair of codelists to a list of structs.
        This now threads the debugging environment through the functions so
        the name is no longer really appropriate.  DCJM 23/2/01. *)
@@ -2574,12 +2486,10 @@ struct
                 end
 
             |   applyAction
-                ((destAddr, ValueMatch { sourceValue as Value{typeOf=sourceTypeOf, name, ...}, coercion, targetType }),
+                ((destAddr,
+                    ValueMatch { sourceValue as Value{name, ...}, coercion }),
                  (otherCode, allSame)) =
                 let
-                    (* Set up a new type variable environment in case this needs to create type
-                       values to match a polymorphic source value to a monomorphic context. *)
-                    val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
                     (* If the entry is from a signature select from the code.  Apply any coercion from
                        constructors to values. *)
                     fun loadCode localLevel =
@@ -2589,22 +2499,23 @@ struct
                                 case coercion of
                                     NoCoercion => mkInd (svAddr, #load decs localLevel)
 
-                                |   ExceptionToValue =>
+                                |   ExceptionToValue true => (* nullary exception *)
                                     let
                                         fun loadEx l = mkInd (svAddr, #load decs l)
                                     in
-                                        case getFnArgType sourceTypeOf of
-                                            NONE => mkTuple [loadEx localLevel, mkStr name,
+                                        mkTuple [loadEx localLevel, mkStr name,
                                                      CodeZero, codeLocation LEX.nullLocation]
-                                        |   SOME _ =>
-                                            let
-                                                val nLevel = newLevel level
-                                            in
-                                                mkProc 
-                                                    (mkTuple[loadEx nLevel, mkStr name,
-                                                        mkLoadArgument 0, codeLocation LEX.nullLocation],
-                                                    1, "", getClosure nLevel, 0)
-                                            end
+                                    end
+
+                                |   ExceptionToValue false =>
+                                    let
+                                        fun loadEx l = mkInd (svAddr, #load decs l)
+                                        val nLevel = newLevel level
+                                    in
+                                        mkProc 
+                                            (mkTuple[loadEx nLevel, mkStr name,
+                                                mkLoadArgument 0, codeLocation LEX.nullLocation],
+                                            1, "", getClosure nLevel, 0)
                                     end
 
                                 |   ConstructorToValue =>
@@ -2616,70 +2527,21 @@ struct
                             (
                                 case coercion of
                                     NoCoercion =>
-                                        codeVal (sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex)
-                                |   ExceptionToValue =>
-                                        codeExFunction(sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex)
+                                        codeVal (sourceValue, localLevel, [], lex, LEX.location LEX.nullLex)
+                                |   ExceptionToValue nullary =>
+                                        codeExFunction(sourceValue, localLevel, [], nullary, lex, LEX.location LEX.nullLex)
                                 |   ConstructorToValue =>
-                                        mkInd(1, codeVal (sourceValue, localLevel, typeVarMap, [], lex, LEX.location LEX.nullLex))
+                                        mkInd(1, codeVal (sourceValue, localLevel, [], lex, LEX.location LEX.nullLex))
                             )
 
-                    local
-                        val (copiedCandidate, sourceVars) = generalise sourceTypeOf
-                        val sourceVars =
-                            List.filter (fn {equality, ...} => not justForEqualityTypes orelse equality) sourceVars
-                        val () = 
-                            case unifyTypes(copiedCandidate, targetType) of
-                                NONE => ()
-                            |   SOME report => (print(name ^ ":\n"); PolyML.print report; raise Misc.InternalError "unifyTypes failed in pass 3")
-                        val filterTypeVars = List.filter (fn tv => not justForEqualityTypes orelse tvEquality tv)
-                        val destVars = filterTypeVars (getPolyTypeVars(targetType, fn _ => NONE))
-
-                        (* If we have the same polymorphic variables in the source
-                           and destination we don't need to apply a coercion.
-                           N.B. We may have the same number of polymorphic variables
-                           but still have to apply it if we have, for example,
-                           fun f x => x   matching  val f: 'a list -> 'a list. *)
-                        fun equalEntry({value=source, ...}, destTv) =
-                            case eventual source of
-                                TypeVar sourceTv => sameTv(sourceTv, destTv)
-                            |   _ => false
-                    in
                         val (polyCode, justCopy) =
-                            if ListPair.allEq equalEntry (sourceVars, destVars)
-                            then
-                                (loadCode(level) (* Nothing to do. *),
+                                (loadCode level (* Nothing to do. *),
                                      (* We're just copying if this is the same address. *)
                                      case sourceValue of
                                         Value{access=Formal sourceAddr, ...} => destAddr=sourceAddr
                                      |  _ => false)
-
-                            else if null destVars (* Destination is monomorphic. *)
-                            then (applyToInstance(sourceVars, level, typeVarMap, loadCode), false)
-
-                            else
-                            let
-                                open TypeVarMap
-                                val destPolymorphism = List.length destVars
-                                val localLevel = newLevel level
-                                val argAddrs =
-                                    List.tabulate(destPolymorphism, fn n => fn l => mkLoadParam(n, l, localLevel))
-                                val argMap = ListPair.zipEq(destVars, argAddrs)
-                                val addrs = ref 0
-                                fun mkAddrs n = ! addrs before (addrs := !addrs+n)
-                                val newTypeVarMap = extendTypeVarMap(argMap, mkAddrs, localLevel, typeVarMap)
-                                (* Apply the source to the parameters provided by the destination.  In almost
-                                   all cases we will be removing polymorphism here but it is possible to
-                                   add polymorphism through type definitions of the form type 'a t = int. *)
-                                val application =
-                                    applyToInstance(sourceVars, localLevel, newTypeVarMap, loadCode)
-                            in
-                                (mkProc(
-                                    mkEnv(getCachedTypeValues newTypeVarMap, application),
-                                    destPolymorphism, name ^ "(P)", getClosure localLevel, !addrs), false)
-                            end
-                    end
                 in
-                    (mkEnv(TypeVarMap.getCachedTypeValues typeVarMap, polyCode) :: otherCode,
+                    (polyCode :: otherCode,
                      (* We can use the original structure if nothing else has changed, the offset in
                         the destination structure is the same as the offset in the source and
                         we don't have any coercion. *)
@@ -2776,25 +2638,23 @@ struct
     |   LetDec {decs, body = localStr, ...} =>
         let (* let strdec in strexp end *)
             (* Generate the declarations but throw away the loads. *)
-            val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
             (* TODO: Get the debug environment correct here. *)
-            fun processBody(decs, _, debugEnv, _, _, _) = (decs, debugEnv)
+            fun processBody(decs, _, debugEnv, _, _) = (decs, debugEnv)
             val (code, debug) =
-                codeStrdecs(strName, decs, debugEnv, mkAddr, level, typeVarMap, [], processBody)
+                codeStrdecs(strName, decs, debugEnv, mkAddr, level, [], processBody)
             val {code = bodyCode, load = bodyLoad } =
                 structureCode (localStr, strName, debug, mkAddr, level)
         in
             {
-                code = TypeVarMap.getCachedTypeValues typeVarMap @ code @ bodyCode,
+                code = code @ bodyCode,
                 load = bodyLoad
             }
         end
 
       | StructDec {alist, matchToResult=ref matchToResult, ...} =>
         let
-            val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
-            fun processBody(decs, _, debugEnv, _, _, _) = (decs: codeBinding list, debugEnv)
-            val (coded, _(*debugEnv*)) = codeStrdecs(strName, alist, debugEnv, mkAddr, level, typeVarMap, [], processBody)
+            fun processBody(decs, _, debugEnv, _, _) = (decs: codeBinding list, debugEnv)
+            val (coded, _(*debugEnv*)) = codeStrdecs(strName, alist, debugEnv, mkAddr, level, [], processBody)
             (* We match to the dummy signature here.  If there is a signature outside
                we will match again.  This results in double copying but that should
                all be sorted out by the optimiser. *)
@@ -2803,7 +2663,7 @@ struct
           (* The result is a block containing the declarations and
              code to load the results. *)
             {
-                code = TypeVarMap.getCachedTypeValues typeVarMap @ coded,
+                code = coded,
                 load = applyMatchActions (mkTuple loads, matchToResult, fn _ => raise Subscript, mkAddr, level)
             }
         end
@@ -2823,11 +2683,11 @@ struct
 
     (* We need to generate code for the declaration and then code to load
        the results into a tuple. *)
-    and codeStrdecs (strName, [], debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody) =
-            processBody(leadingDecs: codeBinding list, strName, debugEnv, mkAddr, level, typeVarMap) (* Do the continuation. *)
+    and codeStrdecs (strName, [], debugEnv, mkAddr, level, leadingDecs, processBody) =
+            processBody(leadingDecs: codeBinding list, strName, debugEnv, mkAddr, level) (* Do the continuation. *)
         
     |   codeStrdecs (strName, (StructureDec { bindings = structList, typeIdsForDebug = ref debugIds, ... }) :: sTail,
-                     debugEnv, mkAddr, level, _(*typeVarMap*), leadingDecs, processBody) =
+                     debugEnv, mkAddr, level, leadingDecs, processBody) =
         let
             fun codeStructureBind ({name, value, valRef, ...}: structBind, debug) =
             let
@@ -2854,46 +2714,40 @@ struct
             (* A structure binding may introduce new type IDs either directly or by way of
                opaque signatures or functor application.  Ideally we'd add these using something like
                markTypeConstructors but for now just start a new environment. *)
-            (* TODO: Check this.  It looks as though TypeVarMap.getCachedTypeValues newTypeVarMap
-               always returns the empty list. *)
-            val newTypeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
             val (codeRest, debugRest) =
-                codeStrdecs (strName, sTail, idDebug, mkAddr, level, newTypeVarMap, [], processBody)
+                codeStrdecs (strName, sTail, idDebug, mkAddr, level, [], processBody)
         in
-            (leadingDecs @ code @ debugIdDecs @ TypeVarMap.getCachedTypeValues newTypeVarMap @ codeRest, debugRest)
+            (leadingDecs @ code @ debugIdDecs @ codeRest, debugRest)
         end
 
     |   codeStrdecs (strName, (Localdec {decs, body, ...}) :: sTail,
-                     debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody) =
+                     debugEnv, mkAddr, level, leadingDecs, processBody) =
         let
-            fun processTail(previousDecs, newStrName, newDebugEnv, newMkAddr, newLevel, newTypeVarMap) =
+            fun processTail(previousDecs, newStrName, newDebugEnv, newMkAddr, newLevel) =
             let
                 (* TODO: Get the debug environment right here. *)
             in
-                codeStrdecs (newStrName, sTail, newDebugEnv, newMkAddr, newLevel, newTypeVarMap,
-                             previousDecs, processBody)
+                codeStrdecs (newStrName, sTail, newDebugEnv, newMkAddr, newLevel, previousDecs, processBody)
             end
             
-            fun processBody(previousDecs, newStrName, newDebugEnv, newMkAddr, newLevel, newTypeVarMap) =
+            fun processBody(previousDecs, newStrName, newDebugEnv, newMkAddr, newLevel) =
             let
                 (* TODO: Get the debug environment right here. *)
             in
-                codeStrdecs (newStrName, body, newDebugEnv, newMkAddr, newLevel, newTypeVarMap,
-                             previousDecs, processTail)
+                codeStrdecs (newStrName, body, newDebugEnv, newMkAddr, newLevel, previousDecs, processTail)
             end
         in
             (* Process the declarations then the body and then the tail. *)
-            codeStrdecs (strName, decs, debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody)
+            codeStrdecs (strName, decs, debugEnv, mkAddr, level, leadingDecs, processBody)
         end
  
       | codeStrdecs (strName, (CoreLang {dec, ...}) :: sTail,
-                     debugEnv, mkAddr, level, typeVarMap, leadingDecs, processBody) =
+                     debugEnv, mkAddr, level, leadingDecs, processBody) =
         let
-            fun processTail(newCode, newDebugEnv, newTypeVarMap) =
-                codeStrdecs (strName, sTail, newDebugEnv, mkAddr, level, newTypeVarMap,
-                              newCode, processBody)
+            fun processTail(newCode, newDebugEnv) =
+                codeStrdecs (strName, sTail, newDebugEnv, mkAddr, level, newCode, processBody)
             val (code, debug) =
-                PARSETREE.gencode (dec, lex, debugEnv, level, mkAddr, typeVarMap, strName, processTail)
+                PARSETREE.gencode (dec, lex, debugEnv, level, mkAddr, strName, processTail)
         in
             (leadingDecs @ code, debug)
         end
@@ -2922,14 +2776,13 @@ struct
              that has been declared.
              Since value declarations may be mutually recursive we have
              to code-generate the declarations first then return the values. *)
-            val typeVarMap = TypeVarMap.defaultTypeVarMap(fn _ => raise Misc.InternalError "typeVarMap", level)
-            fun loadVals (CoreValue v, rest)  = codeVal (v, level, typeVarMap, [], LEX.nullLex, LEX.location LEX.nullLex) :: rest
+            fun loadVals (CoreValue v, rest)  = codeVal (v, level, [], LEX.nullLex, LEX.location LEX.nullLex) :: rest
             |   loadVals (CoreStruct s, rest) = codeStruct (s, level) :: rest
             |   loadVals (CoreType (TypeConstrSet(_, tcConstructors)), rest) =
                     (* Type IDs are handled separately but we need to load the value constructors if
                        this is a datatype.  This is really only because of datatype replication where
                        we need to be able to get the value constructors from the datatype. *)
-                    List.rev(List.map( fn v => codeVal (v, level, typeVarMap, [], LEX.nullLex, LEX.location LEX.nullLex)) tcConstructors)
+                    List.rev(List.map( fn v => codeVal (v, level, [], LEX.nullLex, LEX.location LEX.nullLex)) tcConstructors)
                         @ rest
             |   loadVals (_, rest) = rest
         in
@@ -2938,14 +2791,12 @@ struct
  
         fun codeTopdecs (StrDec(str, _), debugEnv, mkAddr) =
             let
-                open TypeVarMap
                 val level = baseLevel
-                val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level)
                 val (code, debug) =
-                    codeStrdecs("", [str], debugEnv, mkAddr, level, typeVarMap, [],
-                        fn(decs, _, debugEnv, _, _, _) => (decs, debugEnv))
+                    codeStrdecs("", [str], debugEnv, mkAddr, level, [],
+                        fn(decs, _, debugEnv, _, _) => (decs, debugEnv))
             in
-                { code = TypeVarMap.getCachedTypeValues typeVarMap @ code, debug = debug }
+                { code = code, debug = debug }
             end
 
         |   codeTopdecs (FunctorDec (structList : functorBind list, _), debugEnv, mkOuterAddr) =
@@ -2973,9 +2824,8 @@ struct
                             makeTypeIdDebugEntries(sigBoundIds (structSignat argVal), debugEnv, level, lex, mkAddr)
                         val (structDebugDecs, structDebugEnv) =
                             makeStructDebugEntries(! debugArgStructs, typeIdDebugEnv, level, lex, mkAddr)
-                        val typeVarMap = TypeVarMap.defaultTypeVarMap(mkAddr, level) (* ???Check??? *)
                         val (valDebugDecs, valDebugEnv) =
-                            makeValDebugEntries(! debugArgVals, structDebugEnv, level, lex, mkAddr, typeVarMap)
+                            makeValDebugEntries(! debugArgVals, structDebugEnv, level, lex, mkAddr)
                         val (typeDebugDecs, typeDebugEnv) =
                             makeTypeConstrDebugEntries(! debugArgTypeConstrs, valDebugEnv, level, lex, mkAddr)
                     in
@@ -3114,12 +2964,12 @@ struct
             let
                 fun copyId(TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeIds offset)
                 |   copyId _ = NONE
-                fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn x => x, fn s => s)
+                fun replaceTypeConstrs tcon = copyTypeConstr (tcon, copyId, fn s => s)
             in
-                copyType(t, fn tv=>tv, replaceTypeConstrs)
+                #1(copyType(t, replaceTypeConstrs))
             end
 
-            fun makeDecs (CoreValue(Value{class, name, typeOf, locations, access, ...}),
+            fun makeDecs (CoreValue(Value{class, name, typeOf=ValueType(typeOf, templates), locations, access, ...}),
                           (addr, { fixes, values, structures, signatures, functors, types } )) =
                 let
                     (* Extract the value from the result vector except if we have a type-dependent
@@ -3130,8 +2980,8 @@ struct
                         |   _ => Global(mkInd (addr, results))
                     (* Replace the typeIDs. *)
                     val newVal =
-                        Value{class=class, name=name, typeOf=replaceTypes typeOf, access=newAccess,
-                              locations=locations, references = NONE, instanceTypes=NONE}
+                        Value{class=class, name=name, typeOf=ValueType(replaceTypes typeOf, templates), access=newAccess,
+                              locations=locations, references = NONE}
                 in
                     (addr+1, { fixes=fixes, values=(name, newVal) :: values, structures=structures,
                                signatures=signatures, functors=functors, types=types } )
@@ -3169,7 +3019,7 @@ struct
                         (* Don't bother replacing the type ID here.  fullCopyDatatype will do it. *)
                         val newConstr =
                             Value{class=class, name=name, typeOf=typeOf, access=newAccess,
-                                  locations=locations, references = NONE, instanceTypes=NONE}
+                                  locations=locations, references = NONE}
                     in
                         (addr+1, others @ [newConstr])
                     end
@@ -3331,7 +3181,6 @@ struct
         type formalArgStruct= formalArgStruct
         type ptProperties   = ptProperties
         type structSigBind  = structSigBind
-        type typeVarForm    = typeVarForm
         type sigs           = sigs
     end
 end;

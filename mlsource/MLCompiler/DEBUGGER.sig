@@ -1,7 +1,7 @@
 (*
     Title:      Source level debugger for Poly/ML
     Author:     David Matthews
-    Copyright  (c)   David Matthews 2000, 2009, 2014-15, 2020
+    Copyright  (c)   David Matthews 2000, 2009, 2014-15, 2020, 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -33,8 +33,8 @@ sig
     type lexan
     type codeBinding
     type codetree
-    type typeVarMap
     type environEntry
+    type valueType
  
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
@@ -49,7 +49,7 @@ sig
     val initialDebuggerStatus: debuggerStatus
 
     val makeValDebugEntries:
-        values list * debuggerStatus * level * lexan * (int -> int) * typeVarMap -> codeBinding list * debuggerStatus
+        values list * debuggerStatus * level * lexan * (int -> int) -> codeBinding list * debuggerStatus
     val makeTypeConstrDebugEntries:  typeConstrSet list * debuggerStatus * level * lexan * (int -> int) -> codeBinding list * debuggerStatus
     val makeStructDebugEntries: structVals list * debuggerStatus * level * lexan * (int->int) ->
         codeBinding list * debuggerStatus
@@ -68,11 +68,11 @@ sig
     (* Exported functions that appear in PolyML.DebuggerInterface. *)
     type debugState (* The run-time state. *)
 
-    val makeValue: debugState -> string * types * locationProp list * machineWord -> values
-    and makeException: debugState -> string * types * locationProp list * machineWord -> values
+    val makeValue: debugState -> string * valueType * locationProp list * machineWord -> values
+    and makeException: debugState -> string * valueType * bool * locationProp list * machineWord -> values
     and makeConstructor:
-        debugState -> string * types * bool * int * locationProp list * machineWord -> values
-    and makeAnonymousValue: debugState -> types * machineWord -> values
+        debugState -> string * valueType * bool * int * locationProp list * machineWord -> values
+    and makeAnonymousValue: debugState -> valueType * machineWord -> values
     
     val makeStructure: debugState -> string * signatures * locationProp list * machineWord -> structVals
     and makeTypeConstr: debugState -> typeConstrSet -> typeConstrSet
@@ -99,7 +99,7 @@ sig
         type lexan          = lexan
         type codeBinding    = codeBinding
         type codetree       = codetree
-        type typeVarMap     = typeVarMap
         type debuggerStatus = debuggerStatus
+        type valueType      = valueType
     end
 end;

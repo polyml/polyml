@@ -45,60 +45,24 @@ functor TYPE_TREE (
 
 ) :  TYPETREESIG =
 
-(*****************************************************************************)
-(*                  TYPETREE functor body                                    *)
-(*****************************************************************************)
 struct
-  open PRETTY;
-  
-  open STRUCTVALS;
-  open LEX;
-  open UTILITIES;
-  open CODETREE;
-  open EXPORTTREE
+    open PRETTY;
+    open STRUCTVALS;
+    open LEX;
+    open UTILITIES;
+    open CODETREE;
+    open EXPORTTREE
 
-  (* added 16/4/96 SPF *)
-  fun sameTypeVar (TypeVar x, TypeVar y) = sameTv (x, y)
-    | sameTypeVar _                      = false;
+    fun sameTv(TypeVariable{link=lA, ...}, TypeVariable{link=lB, ...}) =
+    let
+        val (refA, _) = followRefChainToRef lA
+        and (refB, _) = followRefChainToRef lB
+    in
+        refA = refB
+    end 
 
-  
-  fun isTypeVar          (TypeVar          _) = true
-    | isTypeVar          _ = false;
-     
-  fun isFunctionType     (FunctionType     _) = true
-    | isFunctionType     _ = false;
-
-  fun isEmpty             EmptyType           = true
-    | isEmpty            _ = false;
-    
-  fun isBadType           BadType             = true
-    | isBadType          _ = false;
-
-  val emptyType            = EmptyType;
-
-  fun typesTypeVar          (TypeVar          x) = x 
-    | typesTypeVar          _ = raise Match;
-    
-  fun typesFunctionType     (FunctionType     x) = x
-     | typesFunctionType     _ = raise Match;
-
-    (* This is really left over from an old definition. *)
-    fun tcEquivalent(TypeConstrs{identifier = TypeId {idKind = TypeFn{resType, ...}, ...}, ...}) = resType
-    |   tcEquivalent _ = raise Misc.InternalError "tcEquivalent: Not a type function"
-
-  (* A type construction is the application of a type constructor to
-     a sequence of types to yield a type. A construction may have a nil
-     list if it is a single type identifier such as ``int''. *)
-  
-  (* When a type constructor is encountered in the first pass this entry 
-     is put in. Subsequently a type constructor entry will be assigned to
-     it so that the types can be checked. *)
-
-(*************)
-
-    fun mkTypeVar (level, equality, nonunifiable, printable) = 
-        TypeVar (makeTv {value=emptyType, level=level, equality=equality,
-                         nonunifiable=nonunifiable, printable=printable});
+    fun mkTypeVar (level, equality) = 
+        TypeVar (makeTv {value=NONE, level=level, equality=equality})
 
     fun mkTypeConstruction (name, typc, args, locations) =
         TypeConstruction {name = name, constr = typc,
@@ -107,85 +71,37 @@ struct
     local
         (* Turn a tuple into a record of the form {1=.., 2=... }*)
         fun maptoRecord ([], _) = []
-          | maptoRecord (H::T, i) = 
-                {name=Int.toString i, typeof=H} :: maptoRecord (T,i+1)
+        |   maptoRecord (H::T, i) = {name=Int.toString i, typeOf=H} :: maptoRecord (T, i+1)
     in
-        fun mkProductType (typel: types list) =
-        let
-            val fields = maptoRecord (typel, 1)
-        in
-            LabelledType {recList = fields, fullList = FieldList(List.map #name fields, true)}
-        end
+        fun mkProductType (typel: types list) = LabelledRecord(maptoRecord (typel, 1))
     end
 
     (* Helper functions copied from STRUCT_VALS.  Not exported.   These should
        generally be replaced by the direct pattern matching. *)
-    fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
-    fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
-    fun tcLocations  (TypeConstrs {locations, ...}) = locations
-    fun tcIsAbbreviation (TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}) = true
-    |   tcIsAbbreviation _ = false
 
-    val tcEquality = isEquality o tcIdentifier;
-
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
-    fun makeTypeConstructor (name, typeVars, uid, locations) =
-        TypeConstrs
-        {
-            name       = name,
-            typeVars   = typeVars,
-            identifier = uid,
-            locations = locations
-        }
+    fun makeTypeConstructor (name, uid, locations) = TypeConstrs { name = name, identifier = uid, locations = locations }
 
     fun tsConstr(TypeConstrSet(ts, _)) = ts
 
+    fun mkFunctionType (arg, result) = FunctionType {arg = arg, result = result};
 
-  fun mkFunctionType (arg, result) = 
-      FunctionType {arg = arg, result = result};
+    (* A labelled record. *)
+    fun mkLabelled(l, true) = LabelledRecord l
 
-  fun mkOverloadSet [constr] =
-    (* If there is just a single constructor in the set we make
-       a type construction from it. *)
-        mkTypeConstruction(tcName constr, constr, nil, [])
-   | mkOverloadSet constrs = 
-    let
-        (* Make a type variable and point this at the overload set
-           so we can narrow down the overloading. *)
-        val var = mkTypeVar (generalisable, false, false, false)
-        val set = OverloadSet {typeset=constrs};
-    in
-        tvSetValue (typesTypeVar var, set);
-        var
-    end
-
-    fun mkLabelled (l, frozen) = 
-    let
-        val final = FieldList(map #name l, frozen)
-        val lab =
-            LabelledType {recList = l,
-                          fullList = if frozen then final else FlexibleList(ref final) }
-    in
-        if frozen
-        then lab
-        else
-        let
-           (* Use a type variable so that the record can be expanded.
-              This also provides a model (equality etc). for any fields that
-              are added later. *)
-            val var = mkTypeVar (generalisable, false, false, false)
-            val () =
-                if isTypeVar var
-                then tvSetValue (typesTypeVar var, lab)
-                else ();
-        in
-            var
-        end
-    end
+    |   mkLabelled(l, false) =
+        (* Flexible: create the list of actual fields and the list of field names shared with
+           every instance.  Set the default properties for new fields. *)
+            FlexibleRecordVar
+            {
+                recList = ref(ChainEnd l),
+                fullList = ref(ChainEnd{names=map #name l, frozen=false}), 
+                equality = ref(ChainEnd false),
+                level = ref(ChainEnd Generalisable)
+            }
 
     (* Must remove leading zeros because the labels are compared by
        string comparison. *)
@@ -196,7 +112,31 @@ struct
             then s
             else stripZeros (String.substring(s, 1, size s-1));
     in
-        {name = stripZeros name, typeof = t}
+        {name = stripZeros name, typeOf = t}
+    end
+
+    (* Create a name for a type variable. *)
+    fun makeTypeVariableName(n, isEq) =
+    let
+        fun name num = (if num >= 26 then name (num div 26 - 1) else "")
+              ^ String.str (Char.chr (num mod 26 + Char.ord #"a"))
+        val name = (if isEq then "''" else "'") ^ name n
+    in
+        name
+    end
+
+    (* Create a bound variable and set its name. *)
+    fun createNewBoundVar isEq (index as TVIndex n) = BoundTypeVar(makeTypeVariableName(n, isEq), index)
+
+    (* Create a bound variable.  Give it the name 'a, 'b etc.  Create the first ten
+       in advance to reduce duplication. *)
+    local
+        fun makeVar eq n = createNewBoundVar eq (TVIndex n)
+        val nonEqVars = Vector.tabulate(10, makeVar false)
+        and eqVars = Vector.tabulate(10, makeVar true)
+    in
+        fun createBoundVar true n = if n < 10 then Vector.sub(eqVars, n) else makeVar true n
+        |   createBoundVar false n = if n < 10 then Vector.sub(nonEqVars, n) else makeVar false n
     end
 
     (* Functions to construct the run-time representations of type constructor values,
@@ -212,39 +152,11 @@ struct
     struct
         val equalityOffset = 0
         and printerOffset = 1
-        and boxnessOffset = 2
-        and sizeOffset = 3
-
-        local
-            (* Values used to represent boxness. *)
-            val boxedRepNever  = 0w1   (* Never boxed, always tagged e.g. bool *)
-            and boxedRepAlways = 0w2   (* Always boxed, never tagged e.g. function types *)
-            and boxedRepEither = 0w3   (* Either boxed or tagged e.g. (arbitrary precision) int *)
-            fun make n = mkConst(Address.toMachineWord n)
-            fun isCode n =
-                mkInlproc(mkEqualTaggedWord(mkLoadArgument 0, make n), 1, "test-box", [], 0)
-        in
-            val boxedNever  = make boxedRepNever
-            and boxedAlways = make boxedRepAlways
-            and boxedEither = make boxedRepEither
-            (* Test for boxedness.  This must be applied to the value extracted from
-               the "boxedness" field after applying to any base type arguments in
-               the case of a polytype constructor. *)
-            val isBoxedNever  = isCode boxedRepNever
-            and isBoxedAlways = isCode boxedRepAlways
-            and isBoxedEither = isCode boxedRepEither
-        end
-
-        (* Sizes are always a single word. *)
-        val singleWord = mkConst(Address.toMachineWord 0w1)
 
         fun extractEquality idCode = mkInd(equalityOffset, idCode)
         and extractPrinter idCode = mkInd(printerOffset, idCode)
-        and extractBoxed idCode = mkInd(boxnessOffset, idCode)
-        and extractSize idCode = mkInd(sizeOffset, idCode)
 
-        fun createTypeValue{eqCode, printCode, boxedCode, sizeCode} =
-            mkTuple[eqCode, printCode, boxedCode, sizeCode]
+        fun createTypeValue{eqCode, printCode} = mkTuple[eqCode, printCode]
     end
 
     (* Value constructors are represented by tuples, either pairs for nullary constructors
@@ -271,29 +183,23 @@ struct
         fun defaultMonoTypePrinter _ = PrettyString "?"
         fun defaultPolyTypePrinter _ _ = PrettyString "?"
 
-        fun eqAndPrintCode (eqCode, nArgs, boxed) =
+        fun eqAndPrintCode (eqCode, nArgs) =
         let
             val code =
                 if nArgs = 0
                 then createTypeValue{
                         eqCode=eqCode,
-                        printCode=mkConst (toMachineWord (ref defaultMonoTypePrinter)),
-                        boxedCode = boxed,
-                        sizeCode = singleWord
-                        }
+                        printCode=mkConst (toMachineWord (ref defaultMonoTypePrinter))}
                 else createTypeValue{
                         eqCode=mkInlproc(eqCode, nArgs, "eq-helper()", [], 0),
-                        printCode=mkConst (toMachineWord (ref defaultPolyTypePrinter)),
-                        boxedCode = mkInlproc(boxed, nArgs, "boxed-helper()", [], 0),
-                        sizeCode = mkInlproc(singleWord, nArgs, "size-helper()", [], 0)
-                        }
+                        printCode=mkConst (toMachineWord (ref defaultPolyTypePrinter))}
         in
             Global (genCode(code, [], 0) ())
         end
 
-        fun makeConstr(name, fullName, eqFun, boxed) =
-            makeTypeConstructor (name, [],
-                makeFreeId(0, eqAndPrintCode(eqFun, 0, boxed), true, basisDescription fullName),
+        fun makeConstr(name, fullName, eqFun) =
+            makeTypeConstructor (name,
+                makeFreeId(0, eqAndPrintCode(eqFun, 0), true, basisDescription fullName),
                 [DeclaredAt inBasis])
     
         (* since code generator relies on these representations,
@@ -392,11 +298,11 @@ struct
             val intEquality = genCode(intEquality, [Universal.tagInject DEBUG.maxInlineSizeTag 5], 1) ()
         end
     in
-        val fixedIntConstr = makeConstr("int",  "FixedInt.int", equalTaggedWordFn, boxedNever) (* Fixed precision is always short *)
-        val intInfConstr = makeConstr("int",    "IntInf.int", intEquality, boxedEither)
-        val charConstr   = makeConstr("char",   "char", equalTaggedWordFn, boxedNever) (* Always short *)
-        val stringConstr = makeConstr("string", "string", stringEquality, boxedEither (* Single chars are unboxed. *))
-        val wordConstr   = makeConstr("word",   "word", equalTaggedWordFn, boxedNever)
+        val fixedIntConstr = makeConstr("int",  "FixedInt.int", equalTaggedWordFn) (* Fixed precision is always short *)
+        val intInfConstr = makeConstr("int",    "IntInf.int", intEquality)
+        val charConstr   = makeConstr("char",   "char", equalTaggedWordFn) (* Always short *)
+        val stringConstr = makeConstr("string", "string", stringEquality)
+        val wordConstr   = makeConstr("word",   "word", equalTaggedWordFn)
 
         (* Ref is a datatype with a single constructor.  The constructor is added in INITIALISE.
            Equality is special for "'a ref", "'a array" and "'a Array2.array".  They permit equality
@@ -404,86 +310,76 @@ struct
         val refConstr =
             makeTypeConstructor 
                 ("ref",
-                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "ref"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1), true, basisDescription "ref"),
                 [DeclaredAt inBasis]);
         val arrayConstr =
             makeTypeConstructor 
                 ("array",
-                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "Array.array"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1), true, basisDescription "Array.array"),
                 [DeclaredAt inBasis]);
         val array2Constr =
             makeTypeConstructor 
                 ("array",
-                [makeTv {value=EmptyType, level=generalisable, equality=false, nonunifiable=false, printable=false}],
-                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1, boxedAlways), true, basisDescription "Array2.array"),
+                makeFreeId(1, eqAndPrintCode(equalPointerOrWordFn, 1), true, basisDescription "Array2.array"),
                 [DeclaredAt inBasis]);
         val byteArrayConstr =
             makeTypeConstructor 
-                ("byteArray", [],
-                makeFreeId(0, eqAndPrintCode(equalPointerOrWordFn, 0, boxedAlways), true, basisDescription "byteArray"),
+                ("byteArray",
+                makeFreeId(0, eqAndPrintCode(equalPointerOrWordFn, 0), true, basisDescription "byteArray"),
                 [DeclaredAt inBasis]);
         (* Bool is a datatype.  The constructors are added in INITIALISE. *)
         val boolConstr =
             makeTypeConstructor 
-                ("bool", [], makeFreeId(0, eqAndPrintCode(equalTaggedWordFn, 0, boxedNever), true, basisDescription "bool"),
+                ("bool", makeFreeId(0, eqAndPrintCode(equalTaggedWordFn, 0), true, basisDescription "bool"),
                 [DeclaredAt inBasis]);
     end
 
-    (* These polytypes allow equality even if the type argument is not an equality type. *)
-    fun isPointerEqType id =
-        sameTypeId (id, tcIdentifier refConstr) orelse
-        sameTypeId (id, tcIdentifier arrayConstr) orelse
-        sameTypeId (id, tcIdentifier array2Constr) orelse
-        sameTypeId (id, tcIdentifier byteArrayConstr)
+    fun isSameTypeIdAs(TypeConstrs{identifier=idA, ...}, TypeConstrs {identifier=idB, ...}) = sameTypeId(idA, idB)
+
+    (* These polytypes allow equality even if the type argument is not an equality type. Used locally and also
+       in TypeIDCode. *)
+    fun isPointerEqType constr =
+        isSameTypeIdAs (constr, refConstr) orelse
+        isSameTypeIdAs (constr, arrayConstr) orelse
+        isSameTypeIdAs (constr, array2Constr) orelse
+        isSameTypeIdAs (constr, byteArrayConstr)
 
     (* Non-eqtypes *)
     local
         open Address PRETTY TypeValue
 
-        fun makeType(name, descr, boxed) =
+        fun makeType(name, descr) =
         let
             fun defaultPrinter _ = PrettyString "?"
             val code =
                 createTypeValue{
                     eqCode=CodeZero (* No equality. *),
-                    printCode=mkConst (toMachineWord (ref defaultPrinter)),
-                    boxedCode=boxed,
-                    sizeCode=singleWord
+                    printCode=mkConst (toMachineWord (ref defaultPrinter))
                 }
         in
             makeTypeConstructor (
-                name, [], makeFreeId(0, Global (genCode(code, [], 0) ()), false, descr),
+                name, makeFreeId(0, Global (genCode(code, [], 0) ()), false, descr),
                 [DeclaredAt inBasis])
         end
     in
-        val realConstr   = makeType("real", basisDescription "real", boxedAlways(* Currently*)) (* Not an eqtype in ML97. *)
+        val realConstr   = makeType("real", basisDescription "real") (* Not an eqtype in ML97. *)
         (* Short real: Real32.real *)
         val floatConstr  =
-            makeType("real", basisDescription "real",
-                if RunCall.bytesPerWord <= 0w4 then boxedAlways else boxedNever)
-        val exnConstr    = makeType("exn", basisDescription "exn", boxedAlways);
+            makeType("real", basisDescription "real")
+        val exnConstr    = makeType("exn", basisDescription "exn");
         (* "undefConstr" is used as a place-holder during parsing for the actual type constructor.
            If the type constructor is not found this may appear in an error message. *)
         val undefConstr  =
-            makeType("undefined", { location = inBasis, description = "Undefined", name = "undefined" }, boxedEither);
+            makeType("undefined", { location = inBasis, description = "Undefined", name = "undefined" })
     end
-          
-    fun isUndefined cons = sameTypeId (tcIdentifier cons, tcIdentifier undefConstr);
-    val isUndefinedTypeConstr = isUndefined
-
-    (* Test if a type is the undefined constructor. *)
-    fun isUndefinedType(TypeConstruction{constr, ...}) = isUndefined constr
-    |   isUndefinedType _ = false
+              
+    fun isUndefinedTypeConstr cons = isSameTypeIdAs (cons, undefConstr)
 
     (* Similar to alphabetic ordering except that shorter labels come before longer ones.
        This has the advantage that numerical labels are compared by their numerical order
        i.e. 1 < 2 < 10 whereas alphabetic ordering puts "1" < "10" < "2". *)
-    fun compareLabels (a : string, b : string) : int = 
-    if size a = size b 
-    then if a = b then 0 else if a < b then ~1 else 1
-    else if size a < size b then ~1 else 1;
+    fun compareLabels (a, b) =
+        case Int.compare(size a, size b) of EQUAL => String.compare(a, b) | order => order
 
     (* Sort using the label ordering.
        A simple sort routine - particularly if the list is already sorted. *)
@@ -491,293 +387,100 @@ struct
     |   sortLabels (s::rest) =
     let
         fun enter s _    [] = [s]
-          | enter s name (l as ( (h as {name=hname, ...}) :: t)) =
-        let
-            val comp = compareLabels (name, hname);
-        in
-            if comp <= 0 then s :: l else h :: enter s name t
-        end;
+        |   enter s name (l as ( (h as {name=hname, ...}) :: t)) =
+        (
+            case compareLabels (name, hname) of
+                GREATER => h :: enter s name t
+            |   _ => s :: l
+        )
     in  
         enter s (#name s) (sortLabels rest)
     end
 
-  (* Chains down a list of type variables returning the type they are
-     bound to. As a side-effect it also points all the type variables
-     at this type to reduce the need for future chaining and to free
-     unused type variables. Normally a type variable points to at most
-     one other, which then points to "empty". However if we have unified
-     two type variables by pointing one at the other, there may be type
-     variables which pointed to the first and which cannot be found and
-     redirected at the second until they themselves are examined. *)
-     
-    fun eventual (t as (TypeVar tv)) : types =
-    let
-        (* Note - don't change the level/copy information - the only type
-           variable with this correct is the one at the end of the list. *)
-        val oldVal = tvValue tv
-        val newVal = eventual oldVal;   (* Search that *)
-    in
-        (* Update the type variable to point to the last in the chain.
-         We don't do this if the value hasn't changed.  The reason for
-         that was that assignment to refs in the database in the old
-         persistent store system was very expensive and we wanted to avoid
-         unnecessary assignments.  This special case could probably be removed. *)
-        if PolyML.pointerEq(oldVal, newVal)
-        then ()
-        else tvSetValue (tv, newVal); (* Put it on *)
-        case newVal of
-            EmptyType => t (* Not bound to anything - return the type variable *)
-        |   LabelledType (r as { recList, fullList }) =>
-            if List.length recList = List.length(recordFields r)
-            then (* All the generic fields are present so we don't need to do anything. *)
-                if recordIsFrozen r then newVal else t
-            else (* We need to add fields from the generic. *)
-            let
-                (* Add any fields from the generic that aren't present in this instance. *)
-                fun createNewField name =
-                        { name = name,
-                          (* The new type variable has to be created with the same properties
-                             as if we had first generalised it from the generic and then
-                             unified with this instance.
-                             The level is inherited from the instance since the generic
-                             will always have level = generalisable.  Nonunifiable must be false. *)
-                            typeof = mkTypeVar (tvLevel tv, tvEquality tv, false, tvPrintity tv)}
+    (* Table of overloads.  Entries are added to this during the bootstrap process using addOverload.
+       Overloaded functions are the standard overloads: +, -, *, div, mod together with literal constant
+       conversion functions convString etc. *)
+    structure Overloads =
+    struct
+        open HashTable
+        val nOverloads = 16
+            (* +, -, *, div, mod, <, >, <=, >=, ~, abs, convInt, convWord, convReal, convChar, convString, *)
+        val overloadTable: (typeConstrs * codetree) list hash =
+            hashMake(nOverloads*3 div 2) (* Add some extra to avoid having to extend the table. *)
 
-                fun addToInstance([], []) = []
-                |   addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
-                |   addToInstance([], instance) = instance
-                        (* This case can occur if we are producing an error message because of
-                           a type-incorrect program so we just ignore it. *)
-                |   addToInstance(generic :: geRest, inst as instance :: iRest) =
-                    let
-                        val order = compareLabels (generic, #name instance);
-                    in
-                        if order = 0 (* Equal *)
-                        then instance :: addToInstance(geRest, iRest)
-                        else if order < 0 (* generic name < instance name *)
-                        then createNewField generic :: addToInstance(geRest, inst)
-                        else (* This is another case that can occur with type-incorrect code. *)
-                            instance :: addToInstance(generic :: geRest, iRest)
-                    end
-
-                val newList = addToInstance(recordFields r, recList)
-                val newRecord =
-                    LabelledType {recList = newList, fullList = fullList}
-            in
-                tvSetValue(tv, newRecord);
-                if recordIsFrozen r then newRecord else t
-            end
- 
-        |   OverloadSet _ => t (* Return the set of types. *)
-
-        |   _ => newVal (* Return the type it is bound to *)
-    end
-    
-    | eventual t (* not a type variable *) = t;
-
-
-    (* Apply a function to every element of a type. *)
-    fun foldType f =
-    let
-        fun foldT typ v =
+        (* Add to the overload list, removing any duplicates.  During the bootstrap process the overloads
+           for literal converters are replaced. *)
+        fun addOverload (n, cons, code) =
         let
-            val t   = eventual typ;
-            val res = f t v; (* Process this entry. *)
+            val existing = getOpt(hashSub(overloadTable, n), [])
+            val filtered = List.filter(fn (c, _) => not(isSameTypeIdAs(c, cons))) existing
         in
-            case t of
-                TypeVar tv => foldT (tvValue tv) res
-
-            |   TypeConstruction {args, ...} => (* Then process the arguments. *)
-                    List.foldr (fn (t, v) => foldT t v) res args
-           
-            |   FunctionType {arg, result} => foldT arg (foldT result res)
-    
-            |   LabelledType {recList,...} =>
-                    List.foldr (fn ({ typeof, ... }, v) => foldT typeof v) res recList
-
-            |   BadType => res
-         
-            |   EmptyType => res
-          
-            |   OverloadSet _ => res
+            hashSet(overloadTable, n, (cons, code) :: filtered)
         end
-    in
-        foldT
-    end
-    (* See if the types are the same. This is a bit of a fudge, but saves carrying
-       around a flag saying whether the structures were copied. This is only an
-       optimisation. If the values are different it will not go wrong. *)
-    val identical : types * types -> bool = PolyML.pointerEq
-    and identicalConstr : typeConstrs * typeConstrs -> bool = PolyML.pointerEq
-    and identicalList : 'a list * 'a list -> bool = PolyML.pointerEq
 
-    (* Copy a type, avoiding copying type structures unnecessarily.
-       Used to make new type variables for all distinct type variables when
-       generalising polymorphic functions, and to make new type stamps for
-       type constructors when generalising signatures. *)
-    fun copyType (at, copyTypeVar, copyTypeConstr) =
-    let
-        fun copyList [] = []
-        |   copyList (l as (h :: t)) =
-        let
-            val h' = copyType (h, copyTypeVar, copyTypeConstr);
-            val t' = copyList t;
-        in
-            if identical (h', h) andalso identicalList (t', t)
-            then l
-            else h' :: t'
-        end  (* copyList *);
+        (* Return all the overloads for a particular identifier.  This is used to populate
+           the overload list when an overloaded function is used. *)
+        fun getOverloadTypes n = List.map #1 (getOpt(hashSub(overloadTable, n), []))
 
-        fun copyRecordList [] = []
-        |   copyRecordList (l as ({name, typeof} :: t)) =
-        let
-            val typeof' = copyType (typeof, copyTypeVar, copyTypeConstr);
-            val t' = copyRecordList t;
-        in
-            if identical (typeof', typeof) andalso identicalList (t', t)
-            then l
-            else {name=name, typeof=typeof'} :: t'
-        end  (* copyList *);
-
-        val atyp = eventual at;
-    in
-        case atyp of
-            TypeVar _ =>  (* Unbound type variable, flexible record or overloading. *)
-                copyTypeVar atyp
-    
-        |   TypeConstruction {constr, args, locations, ...} => 
-            let
-                val copiedArgs   = copyList args;
-                val copiedConstr = copyTypeConstr constr;
-                (* Use the name from the copied constructor.  This will normally
-                   be the same as the original EXCEPT in the case where we are
-                   using copyType to generate copies of the value constructors of
-                   replicated datatypes. *)
-                val copiedName = tcName copiedConstr
-            in
-                if identicalList (copiedArgs, args) andalso
-                    identicalConstr (copiedConstr, constr)
-                then atyp 
-                else (* Must copy it. *) 
-                    mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations)
-            end 
-           
-        |   FunctionType {arg, result} => 
-            let
-                val copiedArg  = copyType (arg,    copyTypeVar, copyTypeConstr);
-                val copiedRes  = copyType (result, copyTypeVar, copyTypeConstr);
-            in
-                if identical (copiedArg, arg) andalso 
-                    identical (copiedRes, result)
-                then atyp 
-                else FunctionType {arg = copiedArg, result = copiedRes}
-            end 
-              
-        |   LabelledType {recList, fullList} =>
-                (* Rigid labelled records only.  Flexible ones are treated as type vars. *)
-            let
-                val copiedList = copyRecordList recList
-            in
-                if identicalList (copiedList, recList)
-                then atyp 
-                else LabelledType {recList = copiedList, fullList = fullList}
-            end
-                        
-        |   EmptyType =>
-                EmptyType
-
-        |   BadType =>
-                BadType
-        
-        |   OverloadSet _ =>
-                raise Misc.InternalError "copyType: OverloadSet found"
-
-    end (* copyType *)
-
-    datatype generalMatch = Matched of {old: typeVarForm, new: types};
-
-    fun generaliseTypes (atyp : types, checkTv: typeVarForm->types option) = 
-    let
-        val madeList = ref [] (* List of tyVars. *);
-
-        fun tvs atyp =
-        let
-            val tyVar = typesTypeVar atyp;
-        in
-            case List.find(fn Matched{old, ...} => sameTv (old, tyVar)) (!madeList) of
-                SOME(Matched{new, ...}) => new
-            |   NONE =>
+        (* Return the overload for a particular type.  It should only ever be called for a name and type
+           that was previously returned by getOverloadTypes. *)
+        fun getOverloadCode(n, TypeConstrs {identifier=consId,...}) =
+            case hashSub(overloadTable, n) of
+                SOME constrAndCode =>
                 (
-                case checkTv tyVar of
-                    SOME found => found
-                |   NONE =>
-                    let  (* Not on the list - make a new name *)
-                        (* Make a unifiable type variable even if the original
-                           is nonunifiable. *)
-                        val n : types = 
-                            mkTypeVar (generalisable, tvEquality tyVar, false, tvPrintity tyVar)
-                    in
-                        (* Set the new variable to have the same value as the
-                           existing.  That is only really needed if we have an
-                           overload set. *)
-                        tvSetValue (typesTypeVar n, tvValue tyVar);
-                        madeList := Matched {old = tyVar, new = n} :: !madeList;
-                        n
-                    end
+                    case List.find (fn (TypeConstrs {identifier=tId,...}, _) => sameTypeId (consId, tId)) constrAndCode of
+                        SOME(_, v) => v
+                    |   NONE => raise Misc.InternalError "getOverload: not overloaded on this type"
                 )
-        end
+            |   NONE => raise Misc.InternalError "getOverload: unknown overload"
 
-        fun copyTypeVar (atyp as TypeVar tyVar) =
-            if tvLevel tyVar <> generalisable
-            then atyp (* Not generalisable. *)
-            else (* Unbound, overload set or flexible record *)
-            let
-                val newTv = tvs atyp
-            in
-                (* If we have a type variable pointing to a flexible record we have to
-                   copy the type pointed at by the variable. *)
-                case tvValue tyVar of
-                    valu as LabelledType _ =>
-                        tvSetValue (typesTypeVar newTv, copyType (valu, copyTypeVar, fn t => t))
-                |   _ => ();
-                newTv
-            end
-        | copyTypeVar atyp = atyp
-        
-        val copied =
-            (* Only process type variables. Return type constructors unchanged. *)
-            copyType (atyp, copyTypeVar, fn t => t (*copyTCons*))
-    in
-        (copied, ! madeList)
-    end (* generaliseTypes *)
+      end
 
-    (* Exported wrapper for generaliseTypes. *)
-    fun generalise atyp =
+    (* Expand the field list of a flexible record to include all the fields that
+       have been added to the generic instance since this record was created. *)
+    fun expandFlexRecord(currentFields, names, level, equality) =
     let
-        val (t, newMatch) = generaliseTypes (atyp, fn _ => NONE)
-        fun makeResult(Matched{new, old}) =
-            {value=new, equality=tvEquality old, printity=tvPrintity old}
+        fun createNewField name = { name = name, typeOf = mkTypeVar(level, equality)}
+
+        fun addToInstance([], []) = []
+        |   addToInstance(generic :: geRest, []) = createNewField generic :: addToInstance(geRest, [])
+        |   addToInstance([], instance) = instance
+                (* This case can occur if we are producing an error message because of
+                   a type-incorrect program so we just ignore it. *)
+        |   addToInstance(generic :: geRest, inst as instance :: iRest) =
+            (
+                case compareLabels (generic, #name instance) of
+                    EQUAL => instance :: addToInstance(geRest, iRest)
+                |   LESS => createNewField generic :: addToInstance(geRest, inst)
+                |   GREATER => (* This is another case that can occur with type-incorrect code. *)
+                        instance :: addToInstance(generic :: geRest, iRest)
+            )
     in
-        (t, List.map makeResult newMatch)
+        if List.length names = List.length currentFields
+        then currentFields(* All the generic fields are present so we don't need to do anything. *)
+        else addToInstance(names, currentFields)
     end
 
-    (* If we have a type construction which is an alias for another type
-       we construct the alias by first instantiating all the type variables
-       and then copying the type. *)
-    fun makeEquivalent (atyp, args) =
-        case tcIdentifier atyp of
-            TypeId{idKind=TypeFn{tyVars=typeArgs, resType=typeResult, ...}, ...} =>
-            let
-                val matches = ListPair.zip(typeArgs, args)
-                fun getArg tv =
-                    case List.find(fn (atv, _) => sameTv(tv, atv)) matches of
-                        SOME (_, ty) => SOME ty
-                    |   NONE => NONE
-            in
-                #1 (generaliseTypes(typeResult, getArg))
-            end
+    (* Test to see is a type constructor is in an overload set. *)
+    fun isInSet(tcons, tyConlist) = List.exists(fn h => isSameTypeIdAs(tcons, h)) tyConlist
 
-        |   TypeId _ => raise Misc.InternalError "makeEquivalent: Not a type function"
+    val prefInt = ref fixedIntConstr
+
+    (* Returns the preferred overload if there is one. *)
+    fun preferredOverload typeset =
+        if isInSet(!prefInt, typeset)
+        then SOME(!prefInt)
+        else if isInSet(realConstr, typeset)
+        then SOME realConstr
+        else if isInSet(wordConstr, typeset)
+        then SOME wordConstr
+        else if isInSet(charConstr, typeset)
+        then SOME charConstr
+        else if isInSet(stringConstr, typeset)
+        then SOME stringConstr
+        else NONE
+
+    fun setPreferredInt c = prefInt := c
 
   (* This 3-valued logic is used because in a few cases we may not be sure
      if equality testing is allowed. If we have 2 mutually recursive datatypes
@@ -788,59 +491,101 @@ struct
      other constructors for "t" do not allow equality and so equality
      will not be allowed for "s" either. *)
      
-  datatype tri = Yes (* 3-valued logic *)
-               | No
-               | Maybe;
+    datatype tri = Yes (* 3-valued logic *) | No | Maybe
 
-
-  (* Returns a flag saying if equality testing is allowed for values of
-     the given type. "equality" is used both to generate the code for
-     a specific call of equality e.g.  (a, b, c) = f(x), and to generate
-     the equality operation for a type when it is declared. In the latter
-     case type variables may be parameters which will be filled in later e.g.
-     type 'a list = nil | op :: of ('a * 'a list). "search"
-     is a function which looks up constructors in mutually recursive type
-     declarations. "lookupTypeVar" deals with type variables. If they
-     represent parameters to a type declaration equality 
-     checking will be allowed. If we are unifying this type to an equality
-     type variable they  will be unified to new equality type variables.
-     Otherwise equality is not allowed. *)
-    
-    fun computeEquality (ty, lookupTypId, lookupTypeVar) : tri =
+    (* Create a type function and compute the relevant information. *)
+    fun makeGeneralTypeFunction(arity, resType, desc, access) =
     let
-        (* Can't use foldT because it is not monotonic
-           (equality on ref 'a is allowed). *)
-        (* Returns Yes only if equality testing is allowed for all types
-           in the list. *)
-        fun eqForList ([],    soFar) = soFar
-          | eqForList (x::xs, soFar) = 
-            case computeEquality (x, lookupTypId, lookupTypeVar) of
-               No    => No
-             | Maybe => eqForList (xs, Maybe)
-             | Yes   => eqForList (xs, soFar);
+        (* If this refers to another type construction involving a type function add one
+           to its type-function count.  When seeing if two type constructions unify we
+           unwrap the larger count.  e.g. type s = int*int type t = s  when unifying s and t
+           we want to unwrap the "t" and not the "s". *)
+        val nextFunCount =
+            case resType of
+                TypeConstruction{constr=TypeConstrs{
+                        identifier=TypeId{idKind=TypeFn{typeFunCount, ...}, ...}, ...}, ...} =>
+                    typeFunCount+1
+            |   _ => 1
+        (* It is possible that one or more type variables are unreferenced.  They must be
+           ignored during unification. *)
+        val refArray = BoolArray.array(arity, false)
+        local
+            fun processTypes typ =
+            let
+            in
+                case typ of
+                    TypeVar _=> raise Misc.InternalError "TypeVar"
+                |   BoundTypeVar(_, TVIndex n) => BoolArray.update(refArray, n, true)
+                |   FunctionType {arg, result} => (processTypes arg; processTypes result)
+                |   LabelledRecord recList => List.app (processTypes o #typeOf) recList
+                    (* Type construction of type function.  Only include referenced variables. *)
+                |   TypeConstruction{constr=TypeConstrs{
+                        identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, args, ...} =>
+                    let
+                        fun process(arg, n) =
+                            (if BoolVector.sub(usedTvs, n) then processTypes arg else (); n+1)
+                        val _ = List.foldl process 0 args
+                    in
+                        ()
+                    end
+                    (* Type construction of datatype. *)
+                |   TypeConstruction {args, ...} => List.app processTypes args
+                |   _ => ()
+            end
+        in
+            val _ = processTypes resType
+            val refVector = BoolArray.vector refArray
+        end
+
+        (* Equality *)
+        (* Unlike datatype constructions a type function is equal to its definition.
+           That means that only certain of the arguments can affect equality.
+           e.g. type ('a, 'b, 'c) t = ('a * 'b ref).  (int, real, real) t admits equality. *)
+        local
+            val eqRefArray = BoolArray.array(arity, false)
+            fun lookupBTV(TVIndex i) = BoolArray.update(eqRefArray, i, true)
+            val eq = computeEqualityWithinTypeConstructor(resType, fn _ => No, lookupBTV)
+        in
+            val eqRes =
+                case eq of
+                    No => TypeFnEqNever
+                |   _ => TypeFnEq(BoolArray.vector eqRefArray)
+        end
+
+        val typeFn =
+        {
+            arity = arity,
+            resType = resType,
+            usedTvs = refVector,
+            typeFunCount = nextFunCount,
+            equality = ref eqRes,
+            uid = makeUniqueId()
+        }
     in
-        case eventual ty of
-            TypeVar tyVar => (* The type variable may point to a flexible record or
-                          an overload set or it may be the end of the chain.
-                          If this is a labelled record we have to make sure that
-                          any fields we add also admit equality.
-                          lookupTypeVar makes the type variable an equality type
-                          so that any new fields are checked for equality but
-                          we also have to call "equality" to check the existing
-                          fields. *)
-                if tvEquality tyVar then Yes
-                else
-                    (
-                    case tvValue tyVar of
-                        lab as LabelledType _ =>
-                            (
-                            case lookupTypeVar tyVar of
-                                No => No
-                              | _ => computeEquality (lab, lookupTypId, lookupTypeVar)
-                            )
-                     | _ => lookupTypeVar tyVar
-                    )
-   
+        TypeId { access=access, description = desc, idKind = TypeFn typeFn}
+    end
+
+    (* Tests for equality for a type.  It is only used in datatype and type constructors.
+       lookupTypId is used when computing equality for a set of possibly mutually recursive
+       datatypes and types (from withtype) to get information about others in the set.
+       referenceBoundId indicates that a bound ID was actually used and is used when
+       computing equality for a type function.  It indicates that equality for the
+       type function does actually depend on the bound variable.   *)
+    
+    and computeEqualityWithinTypeConstructor (ty, lookupTypId, referenceBoundId) : tri =
+    let
+        (* Can't use foldT because it is not monotonic: equality on ref 'a is allowed. *)
+        (* Returns Yes only if equality testing is allowed for all types in the list. *)
+        fun eqForList ([],    soFar) = soFar
+        |   eqForList (x::xs, soFar) = 
+            case computeEqualityWithinTypeConstructor (x, lookupTypId, referenceBoundId) of
+                No    => No
+            |   Maybe => eqForList (xs, Maybe)
+            |   Yes   => eqForList (xs, soFar)
+    in
+        case ty of
+            BoundTypeVar(_, index) => (referenceBoundId index; Yes) (* It is always true. *)
+
         |   FunctionType {...} => No  (* No equality on function types! *)
 
         |   TypeConstruction {constr=TypeConstrs
@@ -866,15 +611,12 @@ struct
             end
 
         |   TypeConstruction {constr as TypeConstrs{identifier, ...}, args, ...} =>
-            if isUndefined constr
-            then No
-
             (* ref - Equality is permitted on refs of all types *)
             (* The Definition of Standard ML says that ref is the ONLY type
                constructor which is treated in this way.  The standard basis
                library says that other mutable types such as array should
                also work this way. *)
-            else if isPointerEqType identifier
+            if isUndefinedTypeConstr constr orelse isPointerEqType constr
             then Yes
 
             (* Others apart from ref and real *)
@@ -888,22 +630,231 @@ struct
                 if s = No then No else eqForList (args, s)
             end (* TypeConstruction *)
          
-        |   LabelledType {recList, ...} => (* Record equality if all subtypes are (ignore frozen!) *)
-                (* TODO: Avoid copying the list? *)
-                eqForList (map (fn{typeof, ...}=>typeof) recList, Yes)
+        |   LabelledRecord recList => (* Record equality if all subtypes *)
+                eqForList (map #typeOf recList, Yes)
 
-        |   OverloadSet _ =>
-                (* This should not happen because all overload sets should be pointed
-                   to by type variables and so should be handled in the TypeVar case. *)
-                raise Misc.InternalError "equality - Overloadset found"
+        |   BadType => Yes
 
-        |   BadType => No
+        |   _ => raise Misc.InternalError "computeEqualityWithinTypeConstructor: bad type"
+    end
 
-        |   EmptyType => No (* shouldn't occur *)
+    and getCanonical(Instance(ty, bvMap)) = canonicalise(ty, bvMap)
+    |   getCanonical(SimpleInstance ty) = canonicalise(ty, fn _ => NONE)
+
+    (* Reduce the instance by following type variable chains, looking up bound type
+       variables and expanding labelled records. *)
+    and canonicalise(original as (TypeVar(TypeVariable{link=ref l, ...}), _)) =
+        (
+            (* Get the last entry in the chain and see if it has been set. *)
+            case followRefChainToEnd l of
+                NONE => original (* Not bound to anything - return the type variable *)
+            |   SOME newVal => getCanonical newVal
+        )
+
+    |   canonicalise(original as (BoundTypeVar(_, index), bvMap)) =
+        (
+            case bvMap index of
+                SOME ty => canonicalise(ty, bvMap)
+            |   NONE => original
+        )
+
+    |   canonicalise(original as (FlexibleRecordVar{recList, fullList=ref fullList, equality=ref eql, level=ref lvl}, bvMap)) =
+        (* Add on any fields to the record that were not previously present and have been added
+           by a different instance. *)
+        let
+            val {names, frozen} = followRefChainToEnd fullList
+            and (recListVar, currentFields) = followRefChainToRef recList
+            val equality = followRefChainToEnd eql
+            val level = followRefChainToEnd lvl
+            val newFieldList = expandFlexRecord(currentFields, names, level, equality)
+            (* Add the new fields onto the original,  There may be other references. *)
+            val () = recListVar := ChainEnd newFieldList
+        in
+            if frozen (* Return a fixed record *)
+            then (LabelledRecord newFieldList, bvMap)
+            else original
+        end
+
+    |   canonicalise original = original
+
+    local
+        (* Reduced copyType that only deals with type variables. *)
+        fun copyType(typ, indexBTV) =
+        let
+            fun copyRecordList mapBTV =
+                List.map(fn{name, typeOf} => {name=name, typeOf=copyType (typeOf, mapBTV)})
+
+            val (atyp, mapBTV) = canonicalise(typ, indexBTV)
+        in
+            case atyp of
+                TypeVar _ => atyp (* Unbound type variable. *)
+
+            |   BoundTypeVar(_, index) =>
+                    (* Instantiate the type variable if there is a map.  Currently this can also be called when
+                       processing signatures so allow for the look-up to fail and return the original. *)
+                    getOpt(mapBTV index, atyp)
+
+            |   FreeTypeVar _ => atyp
+
+            |   TypeConstruction {constr, args, locations, name, ...} => 
+                let
+                    val copiedArgs = List.map(fn t => copyType (t, mapBTV)) args
+                in
+                    mkTypeConstruction (name, constr, copiedArgs, locations)
+                end 
+       
+            |   FunctionType {arg, result} => 
+                let
+                    val copiedArg = copyType (arg, mapBTV)
+                    val copiedRes = copyType (result, mapBTV)
+                in
+                    FunctionType {arg = copiedArg, result = copiedRes}
+                end
+
+            |   FlexibleRecordVar{recList=ref recl, fullList as ref full, equality=ref eq, level=ref lvl} =>
+                let
+                    val recList = followRefChainToEnd recl
+                    val {names, frozen} = followRefChainToEnd full
+                    and equality = followRefChainToEnd eq
+                    and level = followRefChainToEnd lvl
+                    (* Add any new fields.  Each field has to be a new type variable modelled on the generic but distinct. *)
+                    val copiedList = expandFlexRecord(copyRecordList mapBTV recList, names, level, equality)
+                in
+                    if frozen
+                    then LabelledRecord copiedList
+                    else FlexibleRecordVar{recList=ref(ChainEnd copiedList), fullList=fullList,
+                            equality = ref(ChainEnd equality), level = ref(ChainEnd level)}
+                end
+
+            |   LabelledRecord recList => LabelledRecord(copyRecordList mapBTV recList)
+
+                (* Overload.  Return the type constructor if it's been resolved. *)
+            |   typ as OverloadSetVar(ref c) =>
+                (
+                    case followRefChainToEnd c of
+                        [tcons as TypeConstrs{name, ...}] => mkTypeConstruction (name, tcons,[], [])
+                    |   _ => typ
+                )
+
+            |   BadType => BadType
+        end
+    in
+        (* Generate the instance by applying any copying necessary.  This is mainly required for
+           backwards compatibility. *)
+        fun reduceToType(Instance(typeOf, indexBTV)) = copyType(typeOf, indexBTV)
+        |   reduceToType(SimpleInstance t) = copyType(t, fn _ => NONE)
+
+        (* Backwards compatibility.  This should be replaced by canonicalise. *)
+        fun eventual typ =
+            reduceToType(Instance(getCanonical(SimpleInstance typ)))
+
+    end
+
+    (* Get a type from an instance.  Needed when we have to construct a type, say a tuple, from components. *)
+    fun instanceToType(SimpleInstance ty) = ty
+    |   instanceToType(i as Instance _) = TypeVar(makeTv {value=SOME i, level=Generalisable, equality=false })
+
+    fun getInstance(Instance i) = i
+    |   getInstance(SimpleInstance ty) = (ty, fn _ => NONE)
+
+    datatype generalMatch = Matched of {old: typeVar, new: types}
+
+    (* Create type variables.  If unifiable is true, the usual case, the type
+       variables are new assignable variables.
+       If it is false, used when creating a type to be matched from a structure, type variables
+       are nonunifiable. This case occurs if we have a structure without an explicit signature.
+       The signature is created from the structure but it might have had overloading or flex
+       records that have only be resolved later. *)
+    fun createTypeVariable (TemplPlain{ equality }) =
+            TypeVar(makeTv {value=NONE, level=Generalisable, equality=equality})
+    |   createTypeVariable (TemplOverload s) = OverloadSetVar(ref(ChainEnd(Overloads.getOverloadTypes s)))
+    |   createTypeVariable (TemplFlexRec{ equality, recList, fullList }) =
+            FlexibleRecordVar{
+                recList=ref(ChainEnd recList), fullList=fullList,
+                equality=ref(ChainEnd equality), level=ref(ChainEnd Generalisable)
+            }
+
+    (* Create a map for type variables.  Optimise the most common cases *)
+    fun createTypeVariableMap [] = (fn _ => raise Misc.InternalError "createTypeVariableMap")
+
+    |   createTypeVariableMap [a] =
+        let
+            val tv = createTypeVariable a
+        in
+            fn TVIndex 0 => tv | _ => raise Misc.InternalError "createTypeVariableMap"
+        end
+
+    |   createTypeVariableMap [a, b] =
+        let
+            val tvA = createTypeVariable a
+            and tvB = createTypeVariable b
+        in
+            fn TVIndex 0 => tvA | TVIndex 1 => tvB | _ => raise Misc.InternalError "createTypeVariableMap"
+        end
+
+    |   createTypeVariableMap [a, b, c] =
+        let
+            val tvA = createTypeVariable a
+            and tvB = createTypeVariable b
+            and tvC = createTypeVariable c
+        in
+            fn TVIndex 0 => tvA | TVIndex 1 => tvB | TVIndex 2 => tvC | _ => raise Misc.InternalError "createTypeVariableMap"
+        end
+
+    |   createTypeVariableMap templs =
+        let
+            val tvs = map createTypeVariable templs
+            val tvVector = Vector.fromList tvs
+        in
+            fn TVIndex n => Vector.sub(tvVector, n)
+        end
+
+    (* Create an instance for a generalisable value, e.g. a polymorphic function. *)
+    fun generalise(atyp, templs) =
+    let
+        (* Create free type variables for each template. *)
+        val freeTypeMap = createTypeVariableMap templs
+        val typeVarList = List.tabulate(List.length templs, fn n => freeTypeMap(TVIndex n))
+    in
+        (Instance(atyp, SOME o freeTypeMap), typeVarList)
+    end
+
+    (* Apply a function to every element of a type. *)
+    fun foldType f (typ, map) =
+    let
+        fun foldT (typ, map) v =
+        let
+            val (t, m)   = canonicalise(typ, map)
+            val res = f (t, m) v (* Process this entry. *)
+        in
+            case t of
+                TypeVar _ => res (* It can only be an unbound type variable. *)
+
+            |   TypeConstruction {args, ...} => (* Then process the arguments. *)
+                    List.foldr (fn (t, v) => foldT (t, m) v) res args
+           
+            |   FunctionType {arg, result} => foldT (arg, m) (foldT (result, m) res)
+
+            |   LabelledRecord recList =>
+                    List.foldr (fn ({ typeOf, ... }, v) => foldT(typeOf, m) v) res recList
+
+            |   FlexibleRecordVar {recList=ref recList,...} =>
+                    List.foldr (fn ({ typeOf, ... }, v) => foldT(typeOf, m) v) res (followRefChainToEnd recList)
+
+            |   BoundTypeVar _ => res (* We currently use this to check for free type variables on a generalised value without using a map. *)
+
+            |   FreeTypeVar _ => res
+
+            |   BadType => res
+          
+            |   OverloadSetVar _ => res
+        end
+    in
+        foldT(typ, map)
     end
 
     (* Can this be used to set an eqtype? Used in "where type" constructions in signatures. *)
-    fun typePermitsEquality ty = computeEquality (ty, fn _ => No, fn _ => Yes) <> No
+    fun typePermitsEquality ty = computeEqualityWithinTypeConstructor (ty, fn _ => No, fn _ => ()) <> No
 
   (* When a datatype is declared we test to see if equality is allowed. The
      types are mutually recursive so value constructors of one type may
@@ -929,28 +880,26 @@ struct
         (* Look at each of the constructors in the list. Equality testing is
            only allowed if it is allowed for each of the alternatives. *)
         fun constrEq _           []       soFar = soFar (* end of list - all o.k. *)
-        |   constrEq constructor ((Value{typeOf=valTypeOf, ...}) :: t) soFar =
+
+        |   constrEq constructor ((Value{typeOf=ValueType(FunctionType{arg, ...}, _), ...}) :: t) soFar =
             (* The constructor may be a constant e.g.
                datatype 'a list = nil | ... or  a function e.g.
                datatype 'a list = ... cons of 'a * 'a list. *)
-            if not (isFunctionType valTypeOf) (* Constant *)
-            then constrEq constructor t soFar (* Go on to the next. *)
-      
-            else
             let
                 (* Function - look at the argument type. *)
                 (* Equality is allowed for any type-variable.  The only type variables
                    allowed are parameters to the datatype so if we have a type variable
                    then equality is allowed for this datatype.  *)
                 val eq = 
-                    computeEquality (#arg (typesFunctionType valTypeOf),
-                        genEquality, fn _ => Yes)
+                    computeEqualityWithinTypeConstructor (arg, genEquality, fn _ => ())
             in
                 if eq = No
                 then (* Not allowed. *) No
                 else (* O.k. - go on to the next. *)
                     constrEq constructor t (if eq = Maybe then Maybe else soFar)
             end (* constrEq *)
+
+        |   constrEq constructor (_ :: t) soFar = constrEq constructor t soFar (* Go on to the next. *)
 
         (* This procedure checks to see if equality is allowed for this datatype. *)
         and genEquality constructorId =
@@ -972,19 +921,11 @@ struct
                     val () = enter (constructorId, Processed Maybe)
                 in
                     case constructorId of
-                        TypeId{idKind = TypeFn{resType, equality, tyVars, ...}, ...} => (* withtype *)
+                        TypeId{idKind = TypeFn{resType, equality, arity, ...}, ...} => (* withtype *)
                         let
-                            val eqRefArray = BoolArray.array(List.length tyVars, false)
-                            fun lookupTypeVar tv =
-                                let
-                                    fun findRef([], _) = ()
-                                    |   findRef(t :: r, n) =
-                                        if sameTv(t, tv) then BoolArray.update(eqRefArray, n, true) else findRef(r, n+1)
-                                in
-                                    findRef(tyVars, 0);
-                                    Yes
-                                end
-                            val eq = computeEquality (resType, genEquality, lookupTypeVar)
+                            val eqRefArray = BoolArray.array(arity, false)
+                            fun lookupBoundTV(TVIndex i) = BoolArray.update(eqRefArray, i, true)
+                            val eq = computeEqualityWithinTypeConstructor (resType, genEquality, lookupBoundTV)
                             val eqRes =
                                 case eq of
                                     No => TypeFnEqNever
@@ -1052,96 +993,15 @@ struct
         end
     end (* computeDatatypeEqualities *)
 
-    (* Create a type function and compute the relevant information. *)
-    fun makeGeneralTypeFunction(tyVars, resType, desc, access) =
-    let
-        (* If this refers to another type construction involving a type function add one
-           to its type-function count.  When seeing if two type constructions unify we
-           unwrap the larger count.  e.g. type s = int*int type t = s  when unifying s and t
-           we want to unwrap the "t" and not the "s". *)
-        val nextFunCount =
-            case resType of
-                TypeConstruction{constr=TypeConstrs{
-                        identifier=TypeId{idKind=TypeFn{typeFunCount, ...}, ...}, ...}, ...} =>
-                    typeFunCount+1
-            |   _ => 1
-        (* It is possible that one or more type variables are unreferenced.  They must be
-           ignored during unification. *)
-        fun findRefs tv refArray =
-            let
-                fun findRef([], _) = ()
-                |   findRef(t :: r, n) =
-                    if sameTv(t, tv) then BoolArray.update(refArray, n, true) else findRef(r, n+1)
-            in
-                findRef(tyVars, 0);
-                refArray
-            end
-        
-        val refArray = BoolArray.array(List.length tyVars, false)
-        local
-            fun processTypes typ =
-            let
-                val t = eventual typ
-            in
-                case t of
-                    TypeVar tv => (findRefs tv refArray; ())
-                |   FunctionType {arg, result} => (processTypes arg; processTypes result)
-                |   LabelledType {recList,...} => List.app (processTypes o #typeof) recList
-                    (* Type construction of type function.  Only include referenced variables. *)
-                |   TypeConstruction{constr=TypeConstrs{
-                        identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, args, ...} =>
-                    let
-                        fun process(arg, n) =
-                            (if BoolVector.sub(usedTvs, n) then processTypes arg else (); n+1)
-                        val _ = List.foldl process 0 args
-                    in
-                        ()
-                    end
-                    (* Type construction of datatype. *)
-                |   TypeConstruction {args, ...} => List.app processTypes args
-                |   _ => ()
-            end
-        in
-            val _ = processTypes resType
-            val refVector = BoolArray.vector refArray
-        end
 
-        (* Equality *)
-        (* Unlike datatype constructions a type function is equal to its definition.
-           That means that only certain of the arguments can affect equality.
-           e.g. type ('a, 'b, 'c) t = ('a * 'b ref).  (int, real, real) t admits equality. *)
-        local
-            val eqRefArray = BoolArray.array(List.length tyVars, false)
-            fun lookupTypeVar tv = (findRefs tv eqRefArray; Yes)
-            val eq = computeEquality (resType, fn _ => No, lookupTypeVar)
-        in
-            val eqRes =
-                case eq of
-                    No => TypeFnEqNever
-                |   _ => TypeFnEq(BoolArray.vector eqRefArray)
-        end
-
-        val typeFn =
-        {
-            tyVars = tyVars,
-            resType = resType,
-            usedTvs = refVector,
-            typeFunCount = nextFunCount,
-            equality = ref eqRes,
-            uid = makeUniqueId()
-        }
-    in
-        TypeId { access=access, description = desc, idKind = TypeFn typeFn}
-    end
-
-    fun makeTypeFunction(tyVars, resType, desc) =
-        makeGeneralTypeFunction(tyVars, resType, desc, Global CodeZero)
+    fun makeTypeFunction(arity, resType, desc) =
+        makeGeneralTypeFunction(arity, resType, desc, Global CodeZero)
 
     (* The unit type is equivalent to the empty record. *)
     val unitConstr   =
-        makeTypeConstructor ("unit", [],
+        makeTypeConstructor ("unit",
             makeTypeFunction(
-                [], LabelledType {recList = [], fullList = FieldList([], true)},
+                0, LabelledRecord [],
                 { location = inBasis, description = "unit", name = "unit" }),
             [DeclaredAt inBasis]);
 
@@ -1156,125 +1016,129 @@ struct
     val exnType    = mkTypeConstruction ("exn",     exnConstr,    [], [])
 
     (* Checks to see whether a labelled record is in the form of
-     a product i.e. 1=, 2=   We only need this for prettyprinting.
-     Zero-length records (i.e. unit) and singleton records are not
-     considered as tuples. *)
-    fun isProductType(LabelledType(r as {recList=recList as _::_::_, ...})) =
+       a product i.e. 1=, 2=   We only need this for prettyprinting.
+       Zero-length records (i.e. unit) and singleton records are not
+       considered as tuples. *)
+    fun isProductType(LabelledRecord(recList as _::_::_)) =
     let
         fun isRec [] _ = true
          |  isRec ({name, ...} :: l) n =
                 name = Int.toString n andalso isRec l (n+1)
     in
-        recordIsFrozen r andalso isRec recList 1
+        isRec recList 1
     end
-    | isProductType _ = false;
+    | isProductType _ = false
 
+    (* This version of copyType is used when copying signatures to instantiate bound type IDs. *)
+    fun copyType (atyp as TypeVar(TypeVariable{link=ref l, ...}), copyTypeConstr) =
+        (
+            (* This can occur when we create a "signature" for a structure that does
+               not have an explicit signature. *)
+            case followRefChainToEnd l of
+                NONE => (atyp, false) (* Unbound type variable.  Can occur if we're copying a candidate "signature" that has type variables that
+                                are free at this level but will be constrained by the signature. *)
+            |   SOME newVal => let val (t, _) = copyType(reduceToType newVal, copyTypeConstr) in (t, true) end
+        )
 
-    (* Test to see is a type constructor is in an overload set. *)
-    fun isInSet(tcons: typeConstrs, (H::T): typeConstrs list) =
-            sameTypeId (tcIdentifier tcons, tcIdentifier H) orelse isInSet(tcons, T)
-    |   isInSet(_, []: typeConstrs list) = false
+    |   copyType (atyp as BoundTypeVar _, _) = (atyp, false)
 
-    val prefInt = ref fixedIntConstr
+    |   copyType (atyp as FreeTypeVar _, _) = (atyp, false)
 
-    (* Returns the preferred overload if there is one. *)
-    fun preferredOverload typeset =
-        if isInSet(!prefInt, typeset)
-        then SOME(!prefInt)
-        else if isInSet(realConstr, typeset)
-        then SOME realConstr
-        else if isInSet(wordConstr, typeset)
-        then SOME wordConstr
-        else if isInSet(charConstr, typeset)
-        then SOME charConstr
-        else if isInSet(stringConstr, typeset)
-        then SOME stringConstr
-        else NONE
+    |   copyType (atyp as TypeConstruction {constr, args, locations, ...}, copyTypeConstr) =
+        let
+            fun argMap [] = ([], false)
+            |   argMap (t :: l) =
+                let
+                    val (v, b) = copyType (t, copyTypeConstr)
+                    val (r, c) = argMap l
+                in
+                    (v::r, b orelse c)
+                end
+            val (copiedArgs, argChanged) = argMap args
+            val (copiedConstr as TypeConstrs {name=copiedName,...}, constrChanged) = copyTypeConstr constr
+            (* Use the name from the copied constructor.  This will normally
+               be the same as the original EXCEPT in the case where we are
+               using copyType to generate copies of the value constructors of
+               replicated datatypes. *)
+        in
+            if argChanged orelse constrChanged
+            then (mkTypeConstruction (copiedName, copiedConstr, copiedArgs, locations), true)
+            else (atyp, false)
+        end 
+           
+    |   copyType (atyp as FunctionType {arg, result}, copyTypeConstr) =
+        let
+            val (copiedArg, argChange) = copyType (arg, copyTypeConstr)
+            val (copiedRes, resChange) = copyType (result, copyTypeConstr)
+        in
+            if argChange orelse resChange
+            then (FunctionType {arg = copiedArg, result = copiedRes}, true)
+            else (atyp, false)
+        end
 
-    fun setPreferredInt c = prefInt := c
+    |   copyType (FlexibleRecordVar _, _) =
+            (BadType, true) (* This case does not occur. Flexible records have already been frozen or errored. *)
 
-    fun equalTypeIds(x, y) =
-    let
-        (* True if two types are equal. *)
-        fun equalTypes (TypeConstruction{constr=xVal, args=xArgs, ...},
-                        TypeConstruction{constr=yVal, args=yArgs, ...}) =
-            equalTypeIds(tcIdentifier xVal, tcIdentifier yVal)
-                andalso equalTypeLists (xArgs, yArgs)
-    
-        | equalTypes (FunctionType x, FunctionType y) = 
-            equalTypes (#arg x, #arg y)   andalso 
-            equalTypes (#result x, #result y)
-                 
-        | equalTypes (LabelledType x, LabelledType y) =
-            recordIsFrozen x andalso recordIsFrozen y andalso  
-            equalRecordLists (#recList x, #recList y)
+    |   copyType (atyp as LabelledRecord recList, copyTypeConstr) =
+        let
+            fun labMap [] = ([], false)
+            |   labMap ({name, typeOf} :: l) =
+                let
+                    val (v, b) = copyType (typeOf, copyTypeConstr)
+                    val (r, c) = labMap l
+                in
+                    ({name=name, typeOf=v} :: r, b orelse c)
+                end
+            val (mapped, mRes) = labMap recList
+        in
+            if mRes
+            then (LabelledRecord mapped, true)
+            else (atyp, false)
+        end
 
-        | equalTypes (TypeVar x, TypeVar y)  = sameTv (x, y)
+    |   copyType (atyp as OverloadSetVar(ref c), _) =
+        (* Overload.  Return the type constructor if it's been resolved.  This can occur in similar
+           situations to type variables. *)
+        (
+            case followRefChainToEnd c of
+                [tcons as TypeConstrs{name, ...}] => (mkTypeConstruction (name, tcons,[], []), true)
+            |   _ => (atyp, false)
+        )
 
-        | equalTypes (EmptyType, EmptyType) = true
-
-        | equalTypes _ = false
-                              
-        and equalTypeLists ([], [])    = true
-        |   equalTypeLists (x::xs, y::ys) =
-               equalTypes(x, y) andalso equalTypeLists (xs, ys)
-        |   equalTypeLists _           = false
-
-        and equalRecordLists ([],        [])    = true
-        |   equalRecordLists (x::xs, y::ys) =
-               #name x = #name y andalso 
-               equalTypes(#typeof x, #typeof y) andalso equalRecordLists (xs, ys)
-        |   equalRecordLists _             = false
-    in
-        case (x, y) of
-            (TypeId{idKind=TypeFn{resType=xEquiv, ...}, ...}, TypeId{idKind=TypeFn{resType=yEquiv, ...}, ...}) =>
-                (* TODO TYPEFN.  Check if we have the same type fn and if so just look at the arguments.  Otherwise
-                   unwrap the larger typeFunCount *)
-                equalTypes(xEquiv, yEquiv)
-        |   _ => sameTypeId(x, y) 
-    end
+    |   copyType (BadType, _) = (BadType, false)
 
     (* Copy a type constructor if it is Bound and in the required range.  If this refers to a type
-       function copies that as well. Does not copy value constructors. *)
-    fun copyTypeConstrWithCache (tcon, typeMap, _, mungeName, cache) =
-        case tcIdentifier tcon of
-            TypeId{idKind = TypeFn{tyVars, resType=equiv, ...}, description, access, ...} =>
+       function copies that as well. Does not copy value constructors. When copying a signature
+       type constructors are copied first and then passed in here as the cache argument. *)
+    fun copyTypeConstrWithCache (tcon as TypeConstrs{identifier=tcId, locations, name=tcName, ...}, typeMap, mungeName, cache) =
+        case tcId of
+            TypeId{idKind = TypeFn{arity, resType=equiv, ...}, description, access, ...} =>
             let
-                val copiedEquiv =
-                    copyType(equiv, fn x => x,
-                        fn tcon =>
-                            copyTypeConstrWithCache (tcon, typeMap, fn x => x, mungeName, cache))
+                val (copiedEquiv, haveCopied) =
+                    copyType(equiv, fn tcon => copyTypeConstr(tcon, typeMap, mungeName))
             in
-                if identical (equiv, copiedEquiv)
-                then tcon (* Type is identical and we don't want to change the name. *)
-                else (* How do we find a type function? *)
-                    makeTypeConstructor (mungeName(tcName tcon), tyVars,
-                        makeGeneralTypeFunction(tyVars, copiedEquiv, description, access),
-                            tcLocations tcon)
+                (* How do we find a type function? *)
+                if haveCopied
+                then (makeTypeConstructor (mungeName tcName,
+                        makeGeneralTypeFunction(arity, copiedEquiv, description, access),
+                            locations), true)
+                else (tcon, false)
             end
 
        |    id =>
             (
                 case typeMap id of
-                    NONE =>
-                    (
-                        (*print(concat[tcName tcon, " not copied\n"]);*)
-                        tcon (* No change *)
-                    )
+                    NONE => (tcon, false) (* No change *)
                 |   SOME newId =>
                     let
-                        val name = #second(splitString (tcName tcon))
+                        val name = #second(splitString tcName)
                         (* We must only match here if they're really the same. *)
-                        fun cacheMatch tc =
-                            equalTypeIds(tcIdentifier tc, newId)
-                                andalso #second(splitString(tcName tc)) = name
+                        fun cacheMatch (TypeConstrs{identifier, name=tcName, ...}) =
+                            sameTypeId(identifier, newId)
+                                andalso #second(splitString tcName) = name
                     in
                         case List.find cacheMatch cache of
-                            SOME tc =>
-                            (
-                                (*print(concat[tcName tcon, " copied as ", tcName tc, "\n"]);*)
-                                tc (* Use the entry from the cache. *)
-                            )
+                            SOME tc => (tc, true) (* Use the entry from the cache. *)
                         |   NONE =>
                             (* Either a hidden identifier or alternatively this can happen as part of
                                the matching process.
@@ -1283,18 +1147,11 @@ struct
                                with the actual IDs as part of the checking process.
                                We will return SOME newId but we don't have a
                                cache so return NONE for List.find. *)
-                            let
-                                val newName = mungeName(tcName tcon)
-                            in
-                                (*print(concat[tcName tcon, " not cached\n"]);*)
-                                makeTypeConstructor(newName, tcTypeVars tcon, newId, tcLocations tcon)
-                            end
+                                (makeTypeConstructor(mungeName tcName, newId, locations), true)
                     end
             )
 
-    (* Exported version. *)
-    fun copyTypeConstr (tcon, typeMap, copyTypeVar, mungeName) =
-        copyTypeConstrWithCache(tcon, typeMap, copyTypeVar, mungeName, [])
+    and copyTypeConstr (tcon, typeMap, mungeName) = copyTypeConstrWithCache(tcon, typeMap, mungeName, [])
 
     (* Compose typeID maps.  If the first map returns a Bound id we apply the second otherwise
        just return the result of the first. *)
@@ -1304,20 +1161,44 @@ struct
 
         |   map2 (id as TypeId{idKind=Free _, ...}) = id
 
-        |   map2 (TypeId{idKind=TypeFn{tyVars=args, resType=equiv, ...}, access, description, ...}) =
+        |   map2 (id as TypeId{idKind=TypeFn{arity, resType=equiv, ...}, access, description, ...}) =
             let
                 fun copyId(TypeId{idKind=Free _, ...}) = NONE
                 |   copyId id = SOME(map2 id)
                 (* If it's a type function e.g. this was a "where type" we have to apply the
                    map to any type identifiers in the type. *)
-                val copiedEquiv =
-                    copyType(equiv, fn x => x,
-                        fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn y => y))
+                val (copiedEquiv, haveCopied) =
+                    copyType(equiv, fn tcon => copyTypeConstr (tcon, copyId, fn y => y))
             in
-                makeGeneralTypeFunction(args, copiedEquiv, description, access)
+                if haveCopied
+                then makeGeneralTypeFunction(arity, copiedEquiv, description, access)
+                else id
             end
     in
         map2(m1 n)
+    end
+
+    (* Similar to generalise but with the bound variables replaced by non-unifiable
+       free variables.  This is used in signature matching.  A polymorphic function
+       in a structure will match a similar monomorphic function but not the other way
+       round.  This currently still needs to copy the type because it includes
+       a type identifier map. *)
+    fun createNonGeneralisableInstance((atyp, templs), copyId) =
+    let
+        fun createFreeTypeVariables([], _) = []
+        |   createFreeTypeVariables(TemplPlain{ equality } :: templs, n) =
+                (* The variables are created as Generalisable which means they can only be matched by Generalisable type
+                   variables in the structure. *)
+                FreeTypeVar{ name = makeTypeVariableName(n, equality), equality=equality, level=Generalisable, uid=makeUniqueId() } ::
+                        createFreeTypeVariables(templs, n+1)
+        |   createFreeTypeVariables _ = raise Misc.InternalError "createNonGeneralisableInstance: template"
+        
+        val freeVars = createFreeTypeVariables(templs, 0)
+        fun boundVarMap(TVIndex n) = SOME(List.nth(freeVars, n))
+        fun copyATypeConstr tcon = copyTypeConstr(tcon, copyId, fn s => s)
+        val (copiedTarget, _) = copyType (atyp, copyATypeConstr)
+    in
+        Instance(copiedTarget, boundVarMap)
     end
 
     (* Basic procedure to print a type structure. *)
@@ -1327,89 +1208,113 @@ struct
 
     val emptyTypeEnv = { lookupType = fn _ => NONE, lookupStruct = fn _ => NONE }
 
-    (* Test whether two type constructors are the same after mapping.
-       This is used to try to find the correct "path" to a type constructor
-       when printing. *)
-    fun eqTypeConstrs(xTypeCons, xMap, yTypeCons, yMap) =
-    let
-        fun id x = x
-        fun copyId (SOME mapTypeId) (TypeId{idKind=Bound{ offset, ...}, ...}) = SOME(mapTypeId offset)
-        |   copyId _ _ = NONE
-        val mappedX = copyTypeConstr(xTypeCons, copyId xMap, id, id)
-        and mappedY = copyTypeConstr(yTypeCons, copyId yMap, id, id)
-    in
-        equalTypeIds(tcIdentifier mappedX, tcIdentifier mappedY)
-    end
-
     (* prints a block of items *)
-    fun tDisp (t : types, depth : FixedInt.int, typeVarName : typeVarForm -> string, env: printTypeEnv,
-               sigMap: (int->typeId)option) : pretty =
+    fun tDisp (t : instanceType, depth : FixedInt.int, typeVarName : typeVar -> string, env: printTypeEnv,
+               sigMap: (int->typeId)option) =
     let
+             
+        fun isFunctionType     (FunctionType     _) = true
+        |   isFunctionType     _ = false
+
         (* prints a block of items *)
-        fun dispP (t : types, depth : FixedInt.int) : pretty =
+        fun dispP (t, ttMap, depth) =
         let
             (* prints a block of items *)
-            fun parenthesise depth t =
+            fun parenthesise depth (t, bvMap) =
             if depth <= 1
             then PrettyString "..."
             else
                 PrettyBlock (0, false, [],
                     [
                         PrettyString "(",
-                        dispP (t, depth - 1),
+                        dispP (t, bvMap, depth - 1),
                         PrettyString ")"
                     ]);
     
             (* prints a sequence of items *)
-            fun prettyList [] _ _: pretty list = []
+            fun prettyList [] _ _ _: pretty list = []
 
-            |   prettyList [H] depth separator =
+            |   prettyList [H] bvMap depth separator =
                 let
-                    val v = eventual H;
+                    val (v, vm) = canonicalise(H, bvMap)
                 in
-                    if separator = "*" andalso
-                        (isFunctionType v orelse isProductType v)
-                    then (* Must bracket the expression *) [parenthesise depth v]
-                    else [dispP (v, depth)]
+                    if separator = "*" andalso (isFunctionType v orelse isProductType v)
+                    then (* Must bracket the expression *) [parenthesise depth (v, vm)]
+                    else [dispP (v, vm, depth)]
                 end
 
-            |   prettyList (H :: T) depth separator =
+            |   prettyList (H :: T) bvMap depth separator =
                 if depth <= 0
                 then [PrettyString "..."]
                 else
                 let
-                    val v = eventual H;
+                    val (v, vm) = canonicalise(H, bvMap)
                 in
                     PrettyBlock (0, false, [],
-                        [(if separator = "*" andalso
-                           (isFunctionType v orelse isProductType v)
-                        then (* Must bracket the expression *) parenthesise depth v
-                        else dispP (v, depth)),
+                        [(if separator = "*" andalso (isFunctionType v orelse isProductType v)
+                        then (* Must bracket the expression *) parenthesise depth (v, vm)
+                        else dispP (v, bvMap, depth)),
                         PrettyBreak (if separator = "," then 0 else 1, 0),
                         PrettyString separator
                         ]) ::
                     PrettyBreak (1, 0) ::
-                    prettyList T (depth - 1) separator
-                end;
-        
-            val typ = eventual t; (* Find the real type structure *)
+                    prettyList T vm (depth - 1) separator
+                end
+
+            fun printRecord(recList, bvMap, isFrozen, depth) =
+                let
+                    (* The ordering on fields is designed to allow mixing of tuples and
+                       records (e.g. #1).  It puts shorter names before longer so that
+                       #11 comes after #2 and before #100.  For named records it does
+                       not make for easy reading so we sort those alphabetically when
+                       printing. *)
+                    val sortedRecList =
+                        Misc.quickSort(fn {name = a, ...} => fn {name = b, ...} => a <= b) recList
+                in
+                    PrettyBlock (2, false, [],
+                        PrettyString "{" ::
+                        (let
+                            fun pRec [] _ = []
+                              | pRec ({name, typeOf} :: T) depth =
+                                if depth <= 0 then [PrettyString "..."]
+                                else
+                                    [
+                                    PrettyBlock(0, false, [],
+                                        [
+                                            PrettyBlock(0, false, [],
+                                                [
+                                                PrettyString (name ^ ":"),
+                                                PrettyBreak(1, 0),
+                                                dispP(typeOf, bvMap, depth - 1)
+                                                ] @
+                                                (if null T then [] else [PrettyBreak (0, 0), PrettyString ","])
+                                            )
+                                        ]@
+                                        (if null T then [] else PrettyBreak (1, 0) :: pRec T (depth-1))
+                                        )
+                                    ]
+                        in
+                            pRec sortedRecList (depth - 1)
+                        end) @
+                        [ PrettyString (if isFrozen then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
+                        )
+                end
+
+
+            val (typ, bvMap) = canonicalise(t, ttMap) (* Find the real type structure *)
         in 
             case typ of
-                TypeVar tyVar =>
-                let
-                    val tyVal : types = tvValue tyVar;
-                in
-                    case tyVal of
-                        EmptyType => PrettyString (typeVarName tyVar)
-                    |   _         => dispP (tyVal, depth)
-                end
-      
-                (* Type construction. *)
-            |   TypeConstruction {args, name, constr=typeConstructor, ...} =>
+                TypeVar tyVar => (* Unset type variable. *) PrettyString (typeVarName tyVar)
+
+            |   BoundTypeVar(s, _) => PrettyString s
+
+            |   FreeTypeVar{name, ...} => PrettyString name
+
+                (* Type construction. *)                    
+            |   TypeConstruction {args, name, constr=typeConstructor as TypeConstrs{name=constrName, identifier=tcId, locations, ...}, ...} =>
                 let
                     val constrName = (* Use the type constructor name unless we're had an error. *)
-                        if isUndefined typeConstructor then name else tcName typeConstructor
-
+                        if isUndefinedTypeConstr typeConstructor then name else constrName
                     (* There are three possible cases: we may not find any type with the
                        name, we may look up the name and find the type or we may look up the
                        name and find a different type. *)
@@ -1420,14 +1325,30 @@ struct
                        current context. *)
                     fun findType (_, []) = NotFound
                     |   findType ({ lookupType, ... }, [typeName]) =
-                        (
+                        let
+                            (* Test whether two type constructors are the same after mapping.
+                               This is used to try to find the correct "path" to a type constructor
+                               when printing.  sameTypeId does not compare type functions. *)
+                            fun eqTypeConstrs(TypeConstrs{identifier=xId, ...}, xMap, TypeConstrs{identifier=yId, ...}, yMap) =
+                            let
+                                val mapIdX =
+                                    case (xId, xMap) of (TypeId{idKind=Bound{ offset, ...}, ...}, SOME map) => map offset | _ => xId
+                                val mapIdY =
+                                    case (yId, yMap) of (TypeId{idKind=Bound{ offset, ...}, ...}, SOME map) => map offset | _ => yId
+                            in
+                                case (mapIdX, mapIdY) of
+                                    (TypeId { idKind = TypeFn{uid = idX, ...}, ...}, TypeId { idKind = TypeFn{uid = idY, ...}, ...}) =>
+                                        idX = idY
+                                |   (mapIdX, mapIdY) => sameTypeId(mapIdX, mapIdY)
+                            end
+                        in
                             (* This must be the name of a type. *)
                             case lookupType typeName of
                                 SOME (t, map) =>
                                     if eqTypeConstrs(typeConstructor, sigMap, tsConstr t, map)
                                     then FoundMatch else FoundNotMatch
                             |   NONE => NotFound
-                        )
+                        end
                     |   findType ({ lookupStruct, ... }, structName :: tail) =
                         (
                             (* This must be the name of a structure.  Does it contain our type? *)
@@ -1477,7 +1398,7 @@ struct
                             let
                                 (* Try the type identifier name. *)
                                 val TypeId { description = { name=idName, ...}, ...} =
-                                    case (sigMap, tcIdentifier typeConstructor) of
+                                    case (sigMap, tcId) of
                                     (SOME map, TypeId{idKind=Bound{offset, ...}, ...}) => map offset
                                 |   (_, id) => id
                                 (* Only add "?" if we actually found a type with the required
@@ -1498,13 +1419,13 @@ struct
                     val newName = String.concatWith "." names
                     (* Get the declaration position for the type constructor. *)
                     val constrContext =
-                        if isUndefined typeConstructor then []
+                        if isUndefinedTypeConstr typeConstructor then []
                         else
-                        (
-                            case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations typeConstructor) of
-                                SOME(DeclaredAt loc) => [ContextLocation loc]
-                            |   _ => []
-                        )
+                            (
+                                case List.find(fn DeclaredAt _ => true | _ => false) locations of
+                                    SOME(DeclaredAt loc) => [ContextLocation loc]
+                                |   _ => []
+                            )
                     val constructorEntry = 
                         PrettyBlock(0, false, constrContext, [PrettyString newName(*constrName*)])
                 in
@@ -1512,19 +1433,19 @@ struct
                         [] => constructorEntry
                     |   args as hd :: tl =>
                         let
-                            val argVal = eventual hd;
+                            val (argVal, argMap) = canonicalise(hd, bvMap)
                         in
                             PrettyBlock (0, false, [],
                             [
                                 (* If we have just a single argument and it's just a type constructor
                                    or a construction we don't need to parenthesise it. *)
                                 if null tl andalso not (isProductType argVal orelse isFunctionType argVal)
-                                then dispP (argVal, depth - 1)
+                                then dispP (argVal, argMap, depth - 1)
                                 else if depth <= 1
                                 then PrettyString "..."
                                 else PrettyBlock(0, false, [],
                                          [PrettyString "(", PrettyBreak (0, 0)]
-                                         @ prettyList args (depth - 1) ","
+                                         @ prettyList args argMap (depth - 1) ","
                                          @ [PrettyBreak (0, 0), PrettyString ")"]
                                      ),
                                 PrettyBreak(1, 0),
@@ -1538,126 +1459,102 @@ struct
                 then PrettyString "..."
                 else (* print out in infix notation *)
                 let
-                    val evArg = eventual arg;
+                    val (evArg, evMap) = canonicalise(arg, bvMap)
                 in
                     PrettyBlock (0, false, [],
                         [
                         (* If the argument is a function it must be printed as (a-> b)->.. *)
                         if isFunctionType evArg 
-                        then parenthesise depth evArg
-                        else dispP (evArg, depth - 1),
+                        then parenthesise depth (evArg, evMap)
+                        else dispP (evArg, bvMap, depth - 1),
                         PrettyBreak(1, 2),
                         PrettyString "->",
                         PrettyBreak (1, 2),
-                        dispP (result, depth - 1)
+                        dispP (result, bvMap, depth - 1)
                         ])
                 end
                      
-            |   LabelledType (r as {recList, ...}) =>
+            |   LabelledRecord recList =>
                 if depth <= 0
                 then PrettyString "..."
                 else if isProductType typ
                 then (* Print as a product *)
                     PrettyBlock (0, false, [], (* Print them as t1 * t2 * t3 .... *)
-                        prettyList (map (fn {typeof, ...} => typeof) recList) depth "*")
-                else (* Print as a record *)
+                        prettyList (List.map (fn {typeOf, ...} => typeOf) recList) bvMap depth "*")
+                else (* Print as a record *) printRecord(recList, bvMap, true, depth)
+
+            |   FlexibleRecordVar{recList=ref recl, fullList=ref full, ...} =>
                 let
-                    (* The ordering on fields is designed to allow mixing of tuples and
-                       records (e.g. #1).  It puts shorter names before longer so that
-                       #11 comes after #2 and before #100.  For named records it does
-                       not make for easy reading so we sort those alphabetically when
-                       printing. *)
-                    val sortedRecList =
-                        Misc.quickSort(fn {name = a, ...} => fn {name = b, ...} => a <= b) recList
+                    val {frozen, ...} = followRefChainToEnd full
+                    val recList = followRefChainToEnd recl
                 in
-                    PrettyBlock (2, false, [],
-                        PrettyString "{" ::
-                        (let
-                            fun pRec [] _ = []
-                              | pRec ({name, typeof} :: T) depth =
-                                if depth <= 0 then [PrettyString "..."]
-                                else
-                                    [
-                                    PrettyBlock(0, false, [],
-                                        [
-                                            PrettyBlock(0, false, [],
-                                                [
-                                                PrettyString (name ^ ":"),
-                                                PrettyBreak(1, 0),
-                                                dispP(typeof, depth - 1)
-                                                ] @
-                                                (if null T then [] else [PrettyBreak (0, 0), PrettyString ","])
-                                            )
-                                        ]@
-                                        (if null T then [] else PrettyBreak (1, 0) :: pRec T (depth-1))
-                                        )
-                                    ]
-                        in
-                            pRec sortedRecList (depth - 1)
-                        end) @
-                        [ PrettyString (if recordIsFrozen r then "}" else case recList of [] =>   "...}" | _  => ", ...}")]
-                        )
+                    printRecord(recList, bvMap, frozen, depth)
                 end
 
-            |   OverloadSet {typeset = []} => PrettyString "no type"
-
-            |   OverloadSet {typeset = tconslist} =>
+            |   OverloadSetVar(ref chain) =>
                 (* This typically arises when printing error messages in the second pass because
                    the third pass will select a single type e.g. int where possible.  To
                    simplify the messages select a single type if possible. *)
                 (
-                    case preferredOverload tconslist of
-                        SOME tcons => dispP(mkTypeConstruction (tcName tcons, tcons,[], []), depth)
-                    |   NONE =>
-                      (* Just print the type constructors separated by / *)
-                    let
-                        fun constrLocation tcons =
-                            case List.find(fn DeclaredAt _ => true | _ => false) (tcLocations tcons) of
-                                SOME(DeclaredAt loc) => [ContextLocation loc]
-                            |   _ => []
-                        (* Type constructor with context. *)
-                        fun tconsItem tcons =
-                            PrettyBlock(0, false, constrLocation tcons, [PrettyString(tcName tcons)])
+                    case followRefChainToEnd chain of
+                        [] => PrettyString "no type"
+                    |   tconslist => 
+                    (
+                        case preferredOverload tconslist of
+                            SOME(tcons as TypeConstrs {name,...})  => dispP(mkTypeConstruction (name, tcons,[], []), bvMap, depth)
+                        |   NONE =>
+                          (* Just print the type constructors separated by / *)
+                        let
+                            fun constrLocation(TypeConstrs{locations, ...}) =
+                            (
+                                case List.find(fn DeclaredAt _ => true | _ => false) locations of
+                                    SOME(DeclaredAt loc) => [ContextLocation loc]
+                                |   _ => []
+                            )
+                            (* Type constructor with context. *)
+                            fun tconsItem(tcons as TypeConstrs {name,...}) =
+                                PrettyBlock(0, false, constrLocation tcons, [PrettyString name])
 
-                        fun printTCcons [] = []
-                          | printTCcons [tcons] = [tconsItem tcons]
-                          | printTCcons (tcons::rest) =
-                                tconsItem tcons :: PrettyBreak (0, 0) ::
-                                PrettyString "/" :: printTCcons rest
-                    in
-                        PrettyBlock (0, false, [], printTCcons tconslist)
-                    end
+                            fun printTCcons [] = []
+                              | printTCcons [tcons] = [tconsItem tcons]
+                              | printTCcons (tcons::rest) =
+                                    tconsItem tcons :: PrettyBreak (0, 0) ::
+                                    PrettyString "/" :: printTCcons rest
+                        in
+                            PrettyBlock (0, false, [], printTCcons tconslist)
+                        end
+                    )
                 )
 
-            |   EmptyType => PrettyString "no type"
-            
             |   BadType => PrettyString "bad"
         end (* dispP *)
+        
+        val (t, map) = getInstance t
     in
-        dispP (t, depth)
+        dispP (t, map, depth)
     end (* tDisp *);
 
   (* Generate unique type-variable names. *)
 
-    fun varNameSequence () : typeVarForm -> string = 
+    fun varNameSequence () : typeVar -> string = 
     (* We need to ensure that every distinct type variable has a distinct name.
        Each new type variable is given a name starting at "'a" and going on
        through the alphabet. *)
     let
-        datatype names = Names of {name: string, entry: typeVarForm}
+        datatype names = Names of {name: string, entry: typeVar}
         val nameNum    = ref ~1
         val gNameList  = ref [] (* List of names *)
     in
         (* If the type is already there return the name we have given it
            otherwise make a new name and put it in the list. *)
-        fn var =>
+        fn (var as TypeVariable{equality=ref eq, ...}) =>
             case List.find (fn (Names {entry,...}) => sameTv (entry, var)) (!gNameList) of
                 NONE =>  (* Not on the list - make a new name *)
                 let
                     fun name num = (if num >= 26 then name (num div 26 - 1) else "")
                           ^ String.str (Char.chr (num mod 26 + Char.ord #"a"))
                     val () = nameNum := !nameNum + 1
-                    val n = (if tvEquality var then "''" else "'") ^ name(!nameNum)
+                    val n = (if followRefChainToEnd eq then "''" else "'") ^ name(!nameNum)
                     (* Should explicit type variables be distinguished? *)
                 in
                     gNameList := Names{name=n, entry=var} :: !gNameList;
@@ -1667,21 +1564,21 @@ struct
     end (* varNameSequence *)
 
     (* Print a type (as a block of items) *)
-    fun displayWithMap (t : types, depth : FixedInt.int, env, sigMap) =
+    fun displayWithMap (t : instanceType, depth : FixedInt.int, env, sigMap) =
         tDisp (t, depth, varNameSequence (), env, sigMap)
-    and display (t : types, depth : FixedInt.int, env) =
+    and display (t : instanceType, depth : FixedInt.int, env) =
         tDisp (t, depth, varNameSequence (), env, NONE)
 
     (* Print out zero, one or more type variables (unblocked) *)
-    fun printTypeVars([], _, _) = [] (* No type vars i.e. monotype *)
+    fun printTypeVariables _ ([], _, _) = [] (* No type vars i.e. monotype *)
  
-    |   printTypeVars([oneVar], depth, typeV) = (* Single type var. *)
+    |   printTypeVariables pt ([oneVar], depth, typeV) = (* Single type var. *)
         [
-            tDisp (TypeVar oneVar, depth, typeV, emptyTypeEnv, NONE), 
+            pt (oneVar, depth, typeV), 
             PrettyBreak (1, 0)
         ]
 
-    |   printTypeVars(vars, depth, typeV) =
+    |   printTypeVariables pt (vars, depth, typeV) =
         (* Must parenthesise them. *)
         if depth <= 1 then [PrettyString "..."]
         else
@@ -1695,7 +1592,7 @@ struct
                         else if null vars then []
                         else
                         [
-                            tDisp (TypeVar(hd vars), depth, typeV, emptyTypeEnv, NONE),
+                            pt (hd vars, depth, typeV),
                             PrettyBreak (0, 0)
                         ] @
                         (if null (tl vars) then []
@@ -1707,298 +1604,198 @@ struct
             ),
             PrettyBreak (1, 0)
         ]
-  
-  
-    (* Version used in parsetree. *)
-    fun displayTypeVariables (vars : typeVarForm list, depth : FixedInt.int) =
-      printTypeVars (vars, depth, varNameSequence ())
-    
- 
-    (* Parse tree for types.  This is used to represent types in the source. *)
-    datatype typeParsetree =
-        ParseTypeConstruction of
-            { name: string, args: typeParsetree list,
-              location: location, nameLoc: location, argLoc: location,
-              (* foundConstructor is set to the constructor when it has been
-                 looked up.  This allows us to get the location where it was
-                 declared if we export the parse-tree. *)
-              foundConstructor: typeConstrs ref }
-    |   ParseTypeProduct of
-            { fields: typeParsetree list, location: location }
-    |   ParseTypeFunction of
-            { argType: typeParsetree, resultType: typeParsetree, location: location }
-    |   ParseTypeLabelled of
-            { fields: ((string * location) * typeParsetree * location) list,
-              frozen: bool, location: location }
-    |   ParseTypeId of { types: typeVarForm, location: location }
-    |   ParseTypeBad (* Place holder for errors. *)
 
-    fun typeFromTypeParse(
-            ParseTypeConstruction{ args, name, location, foundConstructor = ref constr, ...}) =
-        let
-            val argTypes = List.map typeFromTypeParse args
-        in
-            TypeConstruction {name = name, constr = constr,
-                              args = argTypes, locations = [DeclaredAt location]}
-        end
-
-    |   typeFromTypeParse(ParseTypeProduct{ fields, ...}) =
-            mkProductType(List.map typeFromTypeParse fields)
-    
-    |   typeFromTypeParse(ParseTypeFunction{ argType, resultType, ...}) =
-            mkFunctionType(typeFromTypeParse argType, typeFromTypeParse resultType)
-    
-    |   typeFromTypeParse(ParseTypeLabelled{ fields, frozen, ...}) =
-        let
-            fun makeField((name, _), t, _) = mkLabelEntry(name, typeFromTypeParse t)        
-        in
-            mkLabelled(sortLabels(List.map makeField fields), frozen)
-        end
-    
-    |   typeFromTypeParse(ParseTypeId{ types, ...}) = TypeVar types
-    
-    |   typeFromTypeParse(ParseTypeBad) = BadType
-    
-    fun makeParseTypeConstruction((constrName, nameLoc), (args, argLoc), location) =
-        ParseTypeConstruction{
-            name = constrName, nameLoc = nameLoc, args = args, argLoc = argLoc,
-            location = location, foundConstructor = ref undefConstr }
-
-    fun makeParseTypeProduct(recList, location) =
-        ParseTypeProduct{ fields = recList, location = location }
-
-    fun makeParseTypeFunction(arg, result, location) =
-        ParseTypeFunction{ argType = arg, resultType = result, location = location }
-
-    fun makeParseTypeLabelled(recList, frozen, location) =
-        ParseTypeLabelled{ fields = recList, frozen = frozen, location = location }
-
-    fun makeParseTypeId(types, location) =
-        ParseTypeId{ types = types, location = location }
-
-    fun unitTree location = ParseTypeLabelled{ fields = [], frozen = true, location = location }
-
-    (* Build an export tree from the parse tree. *)
-    fun typeExportTree(navigation, p: typeParsetree) =
-    let        
-        val typeof = typeFromTypeParse p
-
-        (* Common properties for navigation and printing. *)
-        val commonProps =
-            PTprint(fn d => display(typeof, d, emptyTypeEnv)) ::
-            PTtype typeof ::
-            exportNavigationProps navigation
-
-        fun asParent () = typeExportTree(navigation, p)
-        
-    in
-        case p of
-            ParseTypeConstruction{ location, nameLoc, args, argLoc, ...} =>
-            let
-                (* If the constructor has been bound return the declaration location.
-                   We have to attach the declaration location in the right place if
-                   this is a polytype e.g. if we have "int list" here we will have
-                   the location for "list" which is the second item not the first. *)
-                val (name, decLoc) =
-                    case typeof of
-                        TypeConstruction { constr, name, ...} =>
-                            if isUndefined constr
-                            then (name, [])
-                            else (name, mapLocationProps(tcLocations constr))
-                    |   _ => ("", []) (* Error? *)
-                val navNameAndArgs =
-                (* Separate cases for nullary, unary and higher type constructions. *)
-                    case args of
-                        [] => decLoc (* Singleton e.g. int *)
-                    |   [oneArg] =>
-                        let (* Single arg e.g. int list. *)
-                            (* Navigate between the type constructor and the argument.
-                               Since the arguments come before the constructor we go there first. *)
-                            fun getArg () =
-                                typeExportTree({parent=SOME asParent, previous=NONE, next=SOME getName}, oneArg)
-                            and getName () =
-                                getStringAsTree({parent=SOME asParent, previous=SOME getArg, next=NONE},
-                                            name, nameLoc, decLoc)
-                        in
-                            [PTfirstChild getArg]
-                        end
-                    |   args =>
-                        let (* Multiple arguments e.g. (int, string) pair *)
-                            fun getArgs () =
-                                (argLoc,
-                                    exportList(typeExportTree, SOME getArgs) args @
-                                        exportNavigationProps{parent=SOME asParent, previous=NONE, next=SOME getName})
-                            and getName () =
-                                getStringAsTree({parent=SOME asParent, previous=SOME getArgs, next=NONE},
-                                            name, nameLoc, decLoc)
-                        in
-                            [PTfirstChild getArgs]
-                        end
-            in
-                (location, navNameAndArgs @ commonProps)
-            end
-
-        |   ParseTypeProduct{ location, fields, ...} =>
-                (location, exportList(typeExportTree, SOME asParent) fields @ commonProps)
-
-        |   ParseTypeFunction{ location, argType, resultType, ...} =>
-                (location, exportList(typeExportTree, SOME asParent) [argType, resultType] @ commonProps)
-
-        |   ParseTypeLabelled{ location, fields, ...} =>
-            let
-                fun exportField(navigation, label as ((name, nameLoc), t, fullLoc)) =
-                    let
-                        (* The first position is the label, the second the type *)
-                        fun asParent () = exportField (navigation, label)
-                        fun getLab () =
-                            getStringAsTree({parent=SOME asParent, next=SOME getType, previous=NONE},
-                                name, nameLoc, [PTtype(typeFromTypeParse t)])
-                        and getType () =
-                            typeExportTree({parent=SOME asParent, previous=SOME getLab, next=NONE}, t)
-                    in
-                        (fullLoc, PTfirstChild getLab :: exportNavigationProps navigation)
-                    end
-            in
-                (location, exportList(exportField, SOME asParent) fields @ commonProps)
-            end
-
-        |   ParseTypeId{ location, ...} =>
-                (location, commonProps)
-
-        |   ParseTypeBad =>
-                (nullLocation, commonProps)
-    end
-
-    fun displayTypeParse(types, depth, env) = display(typeFromTypeParse types, depth, env)
-
-    (* Associates type constructors from the environment with type identifiers
-       (NOT type variables) *)
-    fun assignTypes (tp : typeParsetree,  lookupType : string * location -> typeConstrSet, lex : lexan) =
-    let
-        fun typeFromTypeParse(ParseTypeConstruction{ args, name, location, foundConstructor, ...}) =
-            let
-                (* Assign constructor, then the parameters. *)
-                val TypeConstrSet(constructor, _) = lookupType (name, location)
-                val () =
-                    (* Check that it has the correct arity. *)
-                    if not (isUndefined constructor)
-                    then
-                    let
-                        val arity : int = tcArity constructor;
-                        val num   : int = length args;
-                    in
-                        if arity <> num
-                        then (* Give an error message *)
-                        errorMessage (lex, location,
-                            String.concat["Type constructor (", tcName constructor,
-                                ") requires ", Int.toString arity, " type(s) not ",
-                                Int.toString num])
-                        else foundConstructor := constructor
-                    end
-                    else ()
-                val argTypes = List.map typeFromTypeParse args
-            in
-                TypeConstruction {name = name, constr = constructor,
-                                  args = argTypes, locations = [DeclaredAt location]}
-            end
-
-        |   typeFromTypeParse(ParseTypeProduct{ fields, ...}) =
-                mkProductType(List.map typeFromTypeParse fields)
-    
-        |   typeFromTypeParse(ParseTypeFunction{ argType, resultType, ...}) =
-                mkFunctionType(typeFromTypeParse argType, typeFromTypeParse resultType)
-    
-        |   typeFromTypeParse(ParseTypeLabelled{ fields, frozen, ...}) =
-            let
-                fun makeField((name, _), t, _) = mkLabelEntry(name, typeFromTypeParse t)        
-            in
-                mkLabelled(sortLabels(List.map makeField fields), frozen)
-            end
-    
-        |   typeFromTypeParse(ParseTypeId{ types, ...}) = TypeVar types
-    
-        |   typeFromTypeParse(ParseTypeBad) = BadType
-    in
-        typeFromTypeParse tp
-    end;
+    val printTypeVars =
+        printTypeVariables (fn (var, depth, typeV) => tDisp (SimpleInstance var, depth, typeV, emptyTypeEnv, NONE))
 
     (* When we have finished processing a list of patterns we need to check
        that the record is now frozen. *)
-    fun recordNotFrozen (TypeVar t) : bool = (* Follow the chain *) recordNotFrozen (tvValue t)
-    |   recordNotFrozen (LabelledType r) = not(recordIsFrozen r)
+    fun recordNotFrozen (TypeVar(TypeVariable{link=ref l, ...})) =
+            (case followRefChainToEnd l of NONE => false | SOME t => recordNotFrozen(instanceToType t))
+    |   recordNotFrozen (FlexibleRecordVar{fullList=ref full, ...}) = not(#frozen(followRefChainToEnd full))
     |   recordNotFrozen _ = false (* record or type alias *);
 
-    (* Return the original polymorphic type variables. *)
-    fun getPolyTypeVars(atyp, map) =
-    let
-        val (_, newMatch) = generaliseTypes (atyp, map)
-    in
-        List.map (fn(Matched{old, ...}) => old) newMatch
-    end;
-    
-    fun generaliseWithMap(atyp, map) =
-    let
-        val (t, newMatch) = generaliseTypes (atyp, map)
-        fun makeResult(Matched{new, old}) =
-            {value=new, equality=tvEquality old, printity=tvPrintity old}
-    in
-        (t, List.map makeResult newMatch)
-    end
-  
-   (* Find the argument type which gives this result when the constructor
-      is applied. If we have, for example, a value of type int list and
-      we have discovered that this is a "::" node we have to work back by
-      comparing the type of "::" ('a * 'a list -> 'a list) to find the
-      argument of the constructor (int * int list) and hence how to print it.
-     (Actually "list" is treated specially). *)
-    fun constructorResult (FunctionType{arg, result=TypeConstruction{args, ...}}, typeArgs) =
-        let
-            val matches = ListPair.zip(List.map typesTypeVar args, typeArgs)
-            fun getArg tv =
-                case List.find(fn (atv, _) => sameTv(tv, atv)) matches of
-                    SOME (_, ty) => SOME ty
-                |   NONE => NONE
-        in
-            #1 (generaliseTypes(arg, getArg))
-        end
-    | constructorResult _ = raise Misc.InternalError "Not a function type"
+    (* If this is a nullary constructor it returns NONE otherwise it returns the argument type. *)
+(*    fun exceptionArgType (FunctionType{arg, ...}) = SOME arg
+    |   exceptionArgType _ = NONE*)
 
-    (* Look for the occurrence of locally declared datatypes in the type of a value. *)
+    (* Create an argument map for a type function. *)
+    fun createTypeFnArgumentMap(arguments, argTyMap) =
+    let
+        fun createVar arg = TypeVar(makeTv {value=SOME(Instance(arg, argTyMap)), level=Generalisable, equality=false})
+        val tvars = List.map createVar arguments
+        val tvMap =
+            case tvars of
+                [] => (fn _ => NONE)
+            |   [a] => (fn TVIndex 0 => SOME a | _ => NONE)
+            |   [a, b] => (fn TVIndex 0 => SOME a |  TVIndex 1 => SOME b | _ => NONE)
+            |   [a, b, c] => (fn TVIndex 0 => SOME a |  TVIndex 1 => SOME b |  TVIndex 2 => SOME c | _ => NONE)
+            |   l =>
+                let
+                    val len = List.length l
+                    val v = Vector.fromList l
+                in
+                    fn TVIndex n => if n < len then SOME(Vector.sub(v, n)) else NONE
+                end
+    in
+        tvMap
+    end
+
+    (* Look for the occurrence of locally declared datatypes in the type of a value.
+       This works by looking to see if we have a reference to a local datatype whose
+       address has not yet been set.  If it hasn't that means it's either local to
+       a function or refers to a datatype that occurs textually later.  That can
+       happen if we have a ref that we assign later.  See Tests/Fail/Test064-69. *)
     fun checkForEscapingDatatypes(ty: types, errorFn: string->unit) : unit =
     let
-        fun checkTypes (typ: types) (ok: bool) : bool =
+        fun checkTypes (typ, _) (ok: bool) : bool =
         case typ of
-            TypeConstruction {constr as TypeConstrs
-                {identifier=TypeId{access=Local{addr, ...}, ...}, ...}, ...} =>
+            TypeConstruction {constr=TypeConstrs
+                {identifier=TypeId{access=Local{addr, ...}, ...}, name, ...}, ...} =>
                 if ok andalso !addr < 0
                 then 
                 (
-                    errorFn("Type of expression contains local datatype (" ^ tcName constr
+                    errorFn("Type of expression contains local datatype (" ^ name
                             ^") outside its definition.");
                     false
                 )
                 else ok (* Could we have a "selected" entry with a local datatype? *)
 
-        |    TypeConstruction {constr=TypeConstrs
+        |   TypeConstruction {constr=TypeConstrs
                 {identifier = TypeId{idKind = TypeFn{resType, ...}, ...},...}, ...} =>
-                    (* May be an alias for a type that contains a local datatype. *)
-                    foldType checkTypes resType ok
+                (* May be an alias for a type that contains a local datatype.
+                   Don't return the actual arguments here; we've already checked them and
+                   we don't want to expand the type any further. See Tests/Succeed/207. *)
+                foldType checkTypes (resType, fn _ => SOME unitType) ok
 
         |   _ => ok
     in
-        foldType checkTypes ty true;
+        foldType checkTypes (ty, fn _ => NONE) true;
         ()
     end
-    
+
+    (* If we have a type construction which is an alias for another type
+       we construct the alias by first instantiating all the type variables
+       and then copying the type.
+       This should be replaced by createTypeFnArgumentMap. *)
+    fun makeEquivalent (TypeConstrs {identifier=TypeId{idKind=TypeFn{resType=typeResult, ...}, ...},...}, args) =
+        let
+            (* Map the arguments to type variables containing the arguments.  That ensures
+               that if the arguments contain bound type variables we won't get a bound variable
+               lookup loop. *)
+            fun mapToTv t = TypeVar (makeTv {value=SOME(SimpleInstance t), level=Generalisable, equality=false})
+            val vars = Vector.fromList(List.map mapToTv args)
+            fun getArg(TVIndex n) = SOME(Vector.sub(vars, n))
+        in
+            reduceToType(Instance(typeResult, getArg))
+        end
+
+    |   makeEquivalent _ = raise Misc.InternalError "makeEquivalent: Not a type function"
+
     datatype matchResult =
         SimpleError of types * types * string
     |   TypeConstructorError of types * types * typeConstrs * typeConstrs
+
+    (* Compute the common level for two type variables. *)
+    fun minLevel (NotGeneralisable v1, NotGeneralisable v2) = NotGeneralisable(Int.min (v1, v2))
+    |   minLevel(v1 as NotGeneralisable _, _) = v1
+    |   minLevel(_, v2 as NotGeneralisable _) = v2
+    |   minLevel(Generalisable, Generalisable) = Generalisable
+
+    (* Will this type match an equality type?  Unlike computeEquality this takes an instance but bound
+       variables must be bound to types.  It sets equality on type variables. *)
+    fun equalityForInstance(typ, bvMap): bool =
+    let
+        fun eqForList ([], _) = true
+
+        |   eqForList (x::xs, map) =
+            if equalityForInstance (x, map)
+            then eqForList (xs, map)
+            else false
+    in
+        case canonicalise(typ, bvMap) of
+            (TypeVar(TypeVariable{equality, ...}), _) =>
+            let
+                val (eqRef, isEq) = followRefChainToRef equality
+                val () = if isEq then () else eqRef := ChainEnd true
+                (* Don't actually have to link it because it can never change now. *)
+            in
+                true
+            end
+
+            (* Check that equality is permitted and if it is set the equality property so that
+               any new fields will have to be equality types.  If equality is already true we don't
+               actually need to do anything here. *)
+        |   (FlexibleRecordVar{recList=ref recl, equality, ...}, tmap) =>
+            let
+                val (eqVar, isEq) = followRefChainToRef equality
+                val recList = followRefChainToEnd recl
+                val eqStatus = eqForList (List.map #typeOf recList, tmap)
+            in
+                if eqStatus andalso not isEq
+                then eqVar := ChainEnd true
+                else ();
+                eqStatus
+            end
+        
+        |   (FreeTypeVar{equality, ...}, _) => equality
+
+        |   (FunctionType _, _) => false  (* No equality on function types! *)
+
+        |   (TypeConstruction {constr=TypeConstrs
+                {identifier=TypeId{idKind = TypeFn{equality=ref equal, ...}, ...},...}, args, ...}, tmap) =>
+                (* Type function. *)
+            (
+                case equal of
+                    TypeFnEqNever => false
+                |   TypeFnEq bv =>
+                    let
+                        (* Only some of the arguments may be necessary for equality.  See comment in makeGeneralTypeFunction. *)
+                        fun filterArgs(arg, (n, l)) = (n+1, if BoolVector.sub(bv, n) then arg::l else l)
+                        val (_, filtered) = List.foldl filterArgs (0, []) args
+                    in
+                        eqForList (filtered, tmap)
+                    end
+            )
+
+        |   (TypeConstruction {constr as TypeConstrs{identifier, ...}, args, ...}, tMap) =>
+            (* ref - Equality is permitted on refs of all types *)
+            (* The Definition of Standard ML says that ref is the ONLY type
+               constructor which is treated in this way.  The standard basis
+               library says that other mutable types such as array should
+               also work this way. *)
+            if isUndefinedTypeConstr constr orelse isPointerEqType constr
+            then true
+
+            (* Others apart from ref and real *)
+            else isEquality identifier andalso eqForList (args, tMap)
+
+        |   (LabelledRecord recList, tMap) => (* Record equality if all subtypes *)
+                eqForList (map #typeOf recList, tMap)
+
+        |   (OverloadSetVar rchain, _) =>
+            (* Reduce the list to those that admit equality if possible. *)
+            let
+                val (final, typeset) = followRefChainToRef rchain
+                fun tcEquality(TypeConstrs{identifier, ...}) = isEquality identifier
+            in
+                case List.filter tcEquality typeset of
+                    [] => false (* And leave it unchanged so it can be reported as an error. *)
+                |   newset => ( final := ChainEnd newset; true )
+            end
+
+        |   (BadType, _) => true (* To prevent further errors. *)
+
+        |   (BoundTypeVar _, _) => (* This should have been looked up in canonicalise. *)
+                raise Misc.InternalError "computeEqualityForInstance: Bound"
+
+    end
 
     (* Type matching algorithm for both unification and signature matching. *)
     (* The mapping has now been moved out of here.  Instead when signature matching the
        target signature is copied before this is called which means that this
        process is now symmetric.  There may be some redundant tests left in here. *)
-    fun unifyTypes(Atype : types, Btype : types) : matchResult option =
+    fun unifyTypes(instanceA: instanceType, instanceB: instanceType) : matchResult option =
     let
         (* Get the result in here.  This isn't very ML-like but it greatly
            simplifies converting the code. *)
@@ -2006,504 +1803,207 @@ struct
         fun matchError error = (* Only report one error. *)
             case matchResult of ref (SOME _) => () | r => r := SOME error
         fun cantMatch(alpha, beta, text) = matchError(SimpleError(alpha, beta, text))
-  
-        fun match (Atype : types, Btype : types) : unit =
-        let (* Check two records/tuples and return the combined type. *)
-            fun unifyRecords (rA as {recList=typAlist, fullList = gA},
-                              rB as {recList=typBlist, fullList = gB},
-                              typA : types, typB : types) : types =
-            let        
-                val typAFrozen = recordIsFrozen rA
-                and typBFrozen = recordIsFrozen rB
 
-                fun matchLabelled ([], []) = []
-          
-                     (* Something left in bList - this is fine if typeA is not frozen.
-                        e.g.  (a: s, b: t) will match (a: s, ...) but not just (a:s). *)
-                |   matchLabelled ([], bList as {name=bName, ...} :: _) =
-                    ( 
-                        if typAFrozen
-                        then cantMatch (typA, typB, "(Field " ^ bName ^ " missing)")
-                        else ();
-                        bList (* return the remainder of the list *)
-                    )
+        (* Sets a type variable to a value. - Checks that the type variable
+           we are assigning does not occur in the expression we are about to
+           assign to it. Such cases can occur if we have infinitely-typed
+           expressions such as fun a. a::a where a has type 'a list list ...
+           Also propagates the level information of the type variable.
+           Now also deals with flexible records. *)
+        fun assign (var as TypeVariable{link=varLink, level=ref lvl, equality=ref eq}, t, bvMap, aType, bType) =
+        let
+            val (varLinkVar, _) = followRefChainToRef varLink
+            val varLevelVal = followRefChainToEnd lvl
+            val varEqVal = followRefChainToEnd eq
+            (* Mapped over the type to be assigned. *)
+            (* Returns "false" if it is safe to make the assignment. Sorts out
+             imperative type variables and propagates level information.
+             N.B. It does not propagate equality status. The reason is that
+             if we are unifying ''a with 'b ref, the 'b does NOT become
+             an equality type var. In all other cases it would. *)
+            fun occursCheckFails _ true = true
 
-                |   matchLabelled (aList as {name=aName, ...} :: _, []) = (* Something left in bList *)
-                    ( 
-                        if typBFrozen
-                        then cantMatch (typA, typB, "(Field " ^ aName ^ " missing)")
-                        else ();
-                        aList (* the rest of aList *)
-                    )
-        
-                |   matchLabelled (aList as ((aVal as {name=aName,typeof=aType})::aRest),
-                                   bList as ((bVal as {name=bName,typeof=bType})::bRest)) =
-                    (* both not nil - look at the names. *)
-                    let
-                        val order = compareLabels (aName, bName);
-                    in
-                        if order = 0 (* equal *)
-                        then (* same name - must be unifiable types *)
-                        ( (* The result is (either) one of these with the rest of the list. *)
-                            match (aType, bType);
-                            aVal :: matchLabelled (aRest, bRest)
-                        )
-                        else if order < 0 (* aName < bName *)
-                        then (* The entries in each list are in order so this means that this
-                               entry is not in bList. If the typeB is frozen this is an error. *)
-                            if typBFrozen (* Continue with the entry removed. *)
-                        then (cantMatch (typA, typB, "(Field " ^ aName ^ " missing)"); aList)
-                        else aVal :: matchLabelled (aRest, bList)
-                        else (* aName > bName *)
-                            if typAFrozen
-                        then (cantMatch (typA, typB, "(Field " ^ bName ^ " missing)"); bList)
-                        else bVal :: matchLabelled (aList, bRest)
-                     end (* not nil *);
- 
-                (* Return the combined list. Only actually used if both are flexible. *)
-                val result =
-                    if typAFrozen andalso typBFrozen andalso List.length typAlist <> List.length typBlist
-                    then (* Don't attempt to unify the fields if we have the wrong number of items.
-                            If we've added or removed an item from a tuple e.g. a function with
-                            multiple arguments, it's more useful to know this than to get unification
-                            errors on fields that don't match. *)
-                        (cantMatch (typA, typB, "(Different number of fields)"); [])
-                    else matchLabelled (typAlist, typBlist)
-
-                fun lastFlex(FlexibleList(ref(r as FlexibleList _))) = lastFlex r
-                |   lastFlex(FlexibleList r) = SOME r
-                |   lastFlex(FieldList _) = NONE
-
-            in
-                if typAFrozen
-                then (if typBFrozen then () else valOf(lastFlex gB) := gA; typA)
-                else if typBFrozen
-                then (valOf(lastFlex gA) := gB; typB)
-                else
+            |   occursCheckFails args false =
                 let
-                    (* We may have these linked already in which case we shouldn't do anything. *)
-                    val lastA = valOf(lastFlex gA) and lastB = valOf(lastFlex gB)
+                    val (t, map) = canonicalise args
                 in
-                    if lastA = lastB
-                    then ()
-                    else
-                    let
-                        val genericFields = FieldList(map #name result, false)
-                    in
-                        (* If these are both flexible we have link all the generics together
-                           so that if we freeze any one of them they all get frozen. *)
-                        lastA := genericFields;
-                        lastB := FlexibleList lastA
-                    end;
-                    LabelledType {recList = result, fullList = gA}
-                end
-            end (* unifyRecords *);
+                    case t of
+                        TypeVar(TypeVariable{link=tLink, level=tLevel, equality=tEq})=>
+                        let
+                            val (tLinkVar, _) = followRefChainToRef tLink
+                            val (tLevelVar, tLevelVal) = followRefChainToRef tLevel
+                            val (tEqVar, tEqVal) = followRefChainToRef tEq
+                            (* The level is the minimum of the two, and if we are unifying with
+                               an equality type variable we must make this into one. *)
+                            val minLev = minLevel(varLevelVal, tLevelVal)
+                        in
+                            (* If the links are the same we have an occurs check failure. *)
+                            if varLinkVar = tLinkVar
+                            then true
+                            else
+                            (
+                                (* We have to link equality and level but only on the end.  Don't link them. *)
+                                tEqVar := ChainEnd(varEqVal orelse tEqVal);
+                                tLevelVar := ChainEnd minLev;
+                                false (* OK. *)
+                            )
+                        end
 
-            (* Sets a type variable to a value. - Checks that the type variable
-               we are assigning does not occur in the expression we are about to
-               assign to it. Such cases can occur if we have infinitely-typed
-               expressions such as fun a. a::a where a has type 'a list list ...
-               Also propagates the level information of the type variable.
-               Now also deals with flexible records. *)
-            fun assign (var, t) =
-            let
-              (* Mapped over the type to be assigned. *)
-              (* Returns "false" if it is safe to make the assignment. Sorts out
-                 imperative type variables and propagates level information.
-                 N.B. It does not propagate equality status. The reason is that
-                 if we are unifying ''a with 'b ref, the 'b does NOT become
-                 an equality type var. In all other cases it would. *)
-                fun occursCheckFails _ true = true
+                    |   TypeConstruction {args, constr=TypeConstrs{identifier = TypeId {idKind = TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
+                        (* Type function: Only process arguments that are actually used in the type expression. *)
+                        let
+                            fun checkArgs([], _, b) = b
+                            |   checkArgs(arg::args, n, b) =
+                                    checkArgs(args, n+1, 
+                                        if BoolVector.sub(usedTvs, n) then occursCheckFails (arg, map) b else b)  
+                        in
+                            checkArgs(args, 0, false)
+                        end
 
-                |   occursCheckFails ty false =
-                    let
-                        val t = eventual ty
-                    in
-                        case t of
-                            TypeVar tvar =>
-                            let
-                                (* The level is the minimum of the two, and if we are unifying with
-                                   an equality type variable we must make this into one. *)
-                                val minLev =
-                                    case (tvLevel var, tvLevel tvar) of
-                                        (NotGeneralisable v1, NotGeneralisable v2) =>
-                                            NotGeneralisable(Int.min (v1, v2))
-                                    |   (v1 as NotGeneralisable _, _) => v1
-                                    |   (_, v2 as NotGeneralisable _) => v2
-                                    |   (Generalisable, Generalisable) => Generalisable
-                                val oldValue = tvValue tvar
-                            in
-                                if tvLevel tvar <> minLev
-                                then (* If it is nonunifiable we cannot make its level larger. *)
-                                    if tvNonUnifiable tvar
-                                then cantMatch (Atype, Btype, "(Type variable is free in surrounding scope)")
-                                else
-                                let
-                                    (* Must make a new type var with the right properties *)
-                                    (* This type variable may be a flexible record, in which
-                                       case we have to save the record and put it on the new
-                                       type variable.  We have to do this for the record itself so that new
-                                       fields inherit the correct status and also for any existing fields. *)
-                                    val newTv = mkTypeVar (minLev, tvEquality tvar, false, tvPrintity tvar)
-                                in
-                                    tvSetValue (typesTypeVar newTv, oldValue);
-                                    tvSetValue (tvar, newTv)
-                                end
-                                else ();
-                                (* Safe if vars are different but we also have to check any flexible records. *)
-                                occursCheckFails oldValue (sameTv (tvar, var))
-                            end
+                    |   TypeConstruction {args, ...} =>
+                            (* Datatypes. *)
+                            List.foldl (fn (t, v) => occursCheckFails(t, map) v) false args
 
-                        |   TypeConstruction {args, constr=TypeConstrs{identifier = TypeId {idKind = TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
-                            (* Type function: Only process arguments that are actually used in the type expression. *)
-                            let
-                                fun checkArgs([], _, b) = b
-                                |   checkArgs(arg::args, n, b) =
-                                        checkArgs(args, n+1, 
-                                            if BoolVector.sub(usedTvs, n) then occursCheckFails arg b else b)  
-                            in
-                                checkArgs(args, 0, false)
-                            end
+                    |   FunctionType {arg, result} =>
+                            occursCheckFails(arg, map) false orelse occursCheckFails (result, map) false
 
-                        |   TypeConstruction {args, ...} =>
-                                (* Datatypes. *)
-                                List.foldr (fn (t, v) => occursCheckFails t v) false args
+                    |   LabelledRecord recList =>
+                            List.foldl (fn ({ typeOf, ... }, v) => occursCheckFails (typeOf, map) v) false recList
 
-                        |   FunctionType {arg, result} =>
-                                occursCheckFails arg false orelse occursCheckFails result false
+                    |   FlexibleRecordVar{recList=ref recl, equality, level, ...} =>
+                        let
+                            (* Have to set the properties that will apply to new fields. *)
+                            val (eqVar, equality) = followRefChainToRef equality
+                            val (levelVar, level) = followRefChainToRef level
+                            val minLev = minLevel(varLevelVal, level)
+                            val () = eqVar := ChainEnd(equality orelse varEqVal)
+                            val () = levelVar := ChainEnd minLev
+                        in
+                            List.foldl (fn ({typeOf, ... }, v) => occursCheckFails (typeOf, map) v) false (followRefChainToEnd recl)
+                        end
 
-                        |   LabelledType {recList,...} =>
-                                List.foldr (fn ({ typeof, ... }, v) => occursCheckFails typeof v) false recList
-
-                        |   _ => false
-
-                    end
-
-                val varVal = tvValue var (* Current value of the variable to be set. *)
-
-                local
-                    (* Generally if the type we're assigning contains the type variable that
-                       is an "occurs check" failure.  If we have a type function it is possible
-                       that what looks like an occurs check failure is actually valid; either
-                       because the type variable is not actually used or because the function
-                       boils down to the variable itself.  We need to unwrap it sufficiently
-                       that any apparent occurs check has been eliminated.  We must not assign
-                       the original type to the type variable because that would create a loop. *)
-                    fun followVarsAndTypeFunctions t =
-                    case eventual t of
-                        ev as TypeConstruction{constr as TypeConstrs{identifier = TypeId {idKind = TypeFn _, ...}, ...}, args, ...} =>
-                            let
-                                fun occurs(TypeVar tvar) b = b orelse sameTv(tvar, var) | occurs _ b = b
-                            in
-                                if List.foldl (fn (t, b) => foldType occurs t b) false args
-                                then followVarsAndTypeFunctions(makeEquivalent (constr, args))
-                                else ev
-                            end
-                    |   ev => ev
-                in
-                    val finalType = followVarsAndTypeFunctions t
-                end
-      
-                (* We may actually have the same type variable after any type abbreviations
-                    have been followed. *)
-                val reallyTheSame =
-                    case finalType of
-                        TypeVar tv => sameTv (tv, var)
                     |   _ => false
 
-            in (* start of "assign" *)
-                case varVal of
-                    LabelledType _ =>
-                    (* Flexible record. Check that the records are compatible. *)
-                        match (varVal, finalType)
-                |   OverloadSet _ =>
-                     (* OverloadSet.  Check that the sets match.  This is only in the
-                        case where t is something other than an overload set since
-                        we remove the overload set from a variable when unifying two
-                        sets. *)
-                        match (varVal, finalType)
-                |   _ => ();
- 
-                if reallyTheSame
-                then () (* Don't apply the occurs check or check for non-unifiable. *)
-
-                (* If this type variable was put in explicitly then it can't be
-                   assigned to something else. (We have already checked for the
-                   type variables being the same). *)
-                else if tvNonUnifiable var
-                then cantMatch (Atype, Btype, "(Cannot unify with explicit type variable)")
-
-                else if occursCheckFails finalType false
-                then cantMatch (Atype, Btype, "(Type variable to be unified occurs in type)")
-
-                else
-                let (* Occurs check succeeded. *)
-                    fun canMkEqTv (tvar : typeVarForm) : tri = 
-                    (* Turn it into an equality type var. *)
-                    if tvEquality tvar then Yes 
-                    (* If it is nonunifiable we cannot make it into an equality type var. *)
-                    else if tvNonUnifiable tvar then No
-                    else (* Must make a new type var with the right properties *)
-                    let  (* This type variable may be a flexible record or an overload set,
-                            in which case we have to save the record and put it on the
-                            new type variable.
-                            We have to do both because we have to ensure that the existing
-                            fields in the flexible record admit equality and ALSO that any
-                            additional fields we may add by unification with other records
-                            also admit equality. *)
-                        val newTv = mkTypeVar (tvLevel tvar, true, false, tvPrintity tvar)
-                        val oldValue = tvValue tvar
-                    in
-                        tvSetValue (tvar, newTv);
-                        (* If this is an overloaded type we must remove any types that
-                           don't admit equality. *)
-                        case oldValue of
-                            OverloadSet{typeset} =>
-                            let
-                            (* Remove any types which do not admit equality. *)
-                               fun filter [] = []
-                                |  filter (h::t) =
-                                        if tcEquality h then h :: filter t else filter t
-                            in
-                                case filter typeset of
-                                    [] => No
-                                |   [constr] =>
-                                    ( (* Turn a singleton into a type construction. *)
-                                        tvSetValue (typesTypeVar newTv,
-                                            mkTypeConstruction(tcName constr, constr, nil, []));
-                                        Yes
-                                    )
-                                |   newset =>
-                                    (
-                                        tvSetValue (typesTypeVar newTv, OverloadSet{typeset=newset});
-                                        Yes
-                                    )
-                            end
-                        |   _ => (* Labelled record or unbound variable. *)
-                            (
-                                tvSetValue (typesTypeVar newTv, oldValue);
-                                Yes
-                            )
-                    end
-      
-                in
-                    (* If we are unifying a type with an equality type variable
-                       we must ensure that equality is allowed for that type. This
-                       will turn most type variables into equality type vars. *)
-                    if tvEquality var andalso computeEquality (finalType, fn _ => No, canMkEqTv) = No
-                    then cantMatch (Atype, Btype, "(Requires equality type)")
-                      (* TODO: This can result in an unhelpful message if var is bound
-                         to a flexible record since there is no indication in the
-                         printed type that the flexible record is an equality type.
-                         It would be improved if we set the value to be EmptyType.
-                         At least then the type variable would be printed which would
-                         be an equality type.
-                         --- Adding the "Requires equality type" should improve things. *)
-                    else ();
-                    (* Propagate the "printity" status.  This is probably not complete
-                       but doesn't matter too much since this is a Poly extension. *)
-                    if tvPrintity var
-                    then
-                    let
-                        fun makePrintity(TypeVar tv) _ =
-                        (
-                            if tvPrintity tv then ()
-                            else case tvValue tv of
-                                (* If it's an overload set we don't need to do anything. This will
-                                   eventually be a monotype. *)
-                                OverloadSet _ => ()
-                            |   oldValue =>
-                                let (* Labelled record or unbound variable. *)
-                                    val newTv = mkTypeVar (tvLevel tv, tvEquality tv, tvNonUnifiable tv, true)
-                                in
-                                    tvSetValue(tv, newTv);
-                                    (* Put this on the chain if it's a labelled record. *)
-                                    tvSetValue (typesTypeVar newTv, oldValue)
-                                end
-                        )
-
-                        |   makePrintity _ _ = ()
-                    in
-                        foldType makePrintity finalType ()
-                    end
-                    else ();
-                    (* Actually make the assignment. It doesn't matter if var is 
-                       a labelled record, because t will be either a fixed record
-                       or a combination of the fields of var and t.  Likewise if
-                       var was previously an overload set this may replace the set
-                       by a single type construction. *)
-                    (* If we have had an error don't make the assignment.  At the very least
-                       it could prevent us producing useful error information and it could
-                       also result in unnecessary consequential errors. *)
-                    case !matchResult of
-                        NONE => if reallyTheSame then () else tvSetValue (var, finalType)
-                    |   SOME _ => ()
                 end
-            end (* assign *);
+                
+            local
+                (* Generally if the type we're assigning contains the type variable that
+                   is an "occurs check" failure.  If we have a type function it is possible
+                   that what looks like an occurs check failure is actually valid; either
+                   because the type variable is not actually used or because the function
+                   boils down to the variable itself.  We need to unwrap it sufficiently
+                   that any apparent occurs check has been eliminated.  We must not assign
+                   the original type to the type variable because that would create a loop. *)
+                fun followVarsAndTypeFunctions(t, bvMap) =
+                case canonicalise(t, bvMap) of
+                    inst as (TypeConstruction{constr=TypeConstrs{identifier = TypeId {idKind = TypeFn{resType, ...}, ...}, ...}, args, ...}, newBvMap) =>
+                        let
+                            fun occurs(TypeVar tvar, _) b = b orelse sameTv(tvar, var) | occurs _ b = b
+                        in
+                            if List.foldl (fn (t, b) => foldType occurs (t, newBvMap) b) false args
+                            then
+                            let
+                                val argMap = createTypeFnArgumentMap(args, newBvMap)
+                            in
+                                followVarsAndTypeFunctions(resType, argMap)
+                            end 
+                            else inst
+                        end
+                |   inst => inst
+            in
+                val finalInstance as (finalType, _) = followVarsAndTypeFunctions(t, bvMap)
+            end
+  
+            (* We may actually have the same type variable after any type abbreviations
+                have been followed. *)
+            val reallyTheSame =
+                case finalType of
+                    TypeVar tv => sameTv (tv, var)
+                |   _ => false
 
+        in (* start of "assign" *)
+            if reallyTheSame
+            then () (* Don't apply the occurs check or check for non-unifiable. *)
+
+            else if occursCheckFails finalInstance false
+            then cantMatch (aType, bType, "(Type variable to be unified occurs in type)")
+
+            (* If we're matching a structure to a signature we can't make a non-generalisable type variable polymorphic. *)
+            else if (case (varLevelVal, t) of (NotGeneralisable _, FreeTypeVar{level=Generalisable, ...}) => true | _ => false)
+            then cantMatch (aType, bType, "(Type variable is free at top level)")
+
+            (* A type variable with a wider scope can't be unified with a more local explicit type variable.  *)
+            else if (case (varLevelVal, t) of
+                            (NotGeneralisable tvLevel, FreeTypeVar{level=NotGeneralisable level, ...}) => tvLevel < level | _ => false)
+            then cantMatch (aType, bType, "(Type variable is free in surrounding scope)")
+
+            else
+            let (* Occurs check succeeded. *)
+            in
+                (* If we are unifying a type with an equality type variable
+                   we must ensure that equality is allowed for that type. This
+                   will turn most type variables into equality type vars. *)
+                if varEqVal andalso not(equalityForInstance finalInstance)
+                then cantMatch (aType, bType, "(Requires equality type)")
+                else ();
+                (* If we have had an error don't make the assignment.  At the very least
+                   it could prevent us producing useful error information and it could
+                   also result in unnecessary consequential errors. *)
+                case !matchResult of
+                    NONE => if reallyTheSame then () else varLinkVar := ChainEnd(SOME(Instance finalInstance))
+                |   SOME _ => ()
+            end
+        end (* assign *)
+
+        fun match (argsA, argsB, typeA, typeB) =
+        let (* Check two records/tuples and return the combined type. *)
             (* First find see if typeA and typeB are unified to anything
                already, and get the end of a list of "flexibles".  *)
 
-            val tA = eventual Atype
-            and tB = eventual Btype
+            val (tA, bvMapA) = canonicalise argsA
+            and (tB, bvMapB) = canonicalise argsB
 
         in (* start of "match" *)
-            if isUndefinedType tA orelse isUndefinedType tB
-            then () (* If either of these was an undefined type constructor don't try to match. 
-                       TODO: There are further tests below for this which are now redundant. *)
-            else
             case (tA, tB) of
+                (* If either of these was an undefined type constructor don't try to match. 
+                           TODO: There are further tests below for this which are now redundant. *)
                 (BadType, _) => () (* If either is an error don't try to match *)
             |   (_, BadType) => ()
 
-            |   (TypeVar typeAVar, TypeVar typeBVar) =>
-                (* Unbound type variable, flexible record or overload set. *)
-                let
-                    (* Even if this is a one-way match we can allow type variables
-                       in the typeA to be instantiated to anything in the typeB. *)
-                    val typeAVal = tvValue typeAVar;
-                    (* We have two unbound type variables or flex. records. *)
-                in
-                    if sameTv (typeAVar, typeBVar) (* same type variable? *)
-                    then ()
-                    else (* no - assign one to the other *)
-                        if tvNonUnifiable typeAVar
-                        (* If we have a nonunifiable type variable we want to assign
-                           the typeB to  it. If the typeB is nonunifiable as well we
-                           will get an error message. *)
-                    then assign (typeBVar, tA)
-                    else
-                    let 
-                        (* If they are both flexible records we first set the typeB
-                           to the union of the records, and then set the typeA to
-                           that. In that way we propagate properties such as
-                           equality and level between the two variables. *)
-                        val typBVal = tvValue typeBVar
+            |   (TypeVar (TypeVariable{link=linkA, level=levelA, equality=eqA}),
+                 TypeVar (TypeVariable{link=linkB, level=levelB, equality=eqB})) => (* Unbound type variables. *)
+                    let
+                        (* Link the type variables together. *)
+                        val (linkVarA, linkValA) = followRefChainToRef linkA
+                        and (levelVarA, levelValA) = followRefChainToRef levelA
+                        and (eqVarA, eqValA) = followRefChainToRef eqA
+                        and (linkVarB, _) = followRefChainToRef linkB
+                        and (levelVarB, levelValB) = followRefChainToRef levelB
+                        and (eqVarB, eqValB) = followRefChainToRef eqB
                     in
-                        case (typeAVal, typBVal) of
-                            (LabelledType recA, LabelledType recB) =>
-                            (
-                                (* Turn these back into simple type variables to save
-                                 checking the combined record against the originals
-                                 when we make the assignment.
-                                 (Would be safe but redundant). *)
-                                tvSetValue (typeBVar, emptyType);
-                                tvSetValue (typeAVar, emptyType);
-                                assign (typeBVar,
-                                      unifyRecords (recA, recB, typeAVal, typBVal));
-                                assign (typeAVar, tB)
-                            )
-                        |   (OverloadSet{typeset=setA}, OverloadSet{typeset=setB}) =>
-                            let
-                                (* The lists aren't ordered so we just have to go
-                                   through by hand. *)
-                                fun intersect(_, []) = []
-                                |   intersect(a, H::T) =
-                                        if isInSet(H, a) then H::intersect(a, T) else intersect(a, T)
-                                val newSet = intersect(setA, setB)
-                            in
-                                case newSet of
-                                    [] => cantMatch (Atype, Btype, "(Incompatible overloadings)")
-                                |   _ =>
-                                    (
-                                        tvSetValue (typeBVar, emptyType);
-                                        tvSetValue (typeAVar, emptyType);
-                                        (* I've changed this from OverloadSet{typeset=newset}
-                                         to use mkOverloadSet.  The main reason was that it
-                                         fixed a bug which resulted from a violation of the
-                                         assumption that "equality" would not be passed an
-                                         overload set except when pointed to by a type variable.
-                                         It also removed the need for a separate test for
-                                         singleton sets since mkOverloadSet deals with them.
-                                         DCJM 1/9/00. *)
-                                        assign (typeBVar, mkOverloadSet newSet);
-                                        assign (typeAVar, tB)
-                                    )
-                            end
-                        |   (EmptyType, _) => (* A is not a record or an overload set. *)
-                                assign (typeAVar, tB)
-                        |   (_, EmptyType) => (* A is a record but B isn't *)
-                                assign (typeBVar, tA) (* typeB is ordinary type var. *)
-                        |   _ => (* Bad combination of labelled record and overload set *)
-                                cantMatch (Atype, Btype, "(Incompatible types)")
+                        if linkVarA = linkVarB then () else (linkVarA := ChainRef linkVarB; linkVarB := ChainEnd linkValA);
+                        if eqVarA = eqVarB then () else (eqVarA := ChainRef eqVarB; eqVarB := ChainEnd(eqValA orelse eqValB));
+                        if levelVarA = levelVarB then () else (levelVarA := ChainRef levelVarB; levelVarB := ChainEnd(minLevel(levelValA, levelValB)))
                     end
-                end
 
-            |   (TypeVar typeAVar, _) =>
-                    (* typeB is not a type variable so set typeA to typeB.*)
-                    (* Be careful if this is a non-unifiable type variable being matched to
-                       the special case of the identity type-construction. *)
-                (
-                    if tvNonUnifiable typeAVar orelse (case tvValue typeAVar of OverloadSet _ => true | _ => false)
-                    then
-                        (
-                        case tB of
-                            TypeConstruction {constr, args, ...} =>
-                                if isUndefined constr orelse not (tcIsAbbreviation constr)
-                                then
-                                    (
-                                    case tB of
-                                        TypeConstruction {constr, args, ...} =>
-                                            if isUndefined constr orelse not (tcIsAbbreviation constr)
-                                            then assign (typeAVar, tB)
-                                            else match(tA, eventual (makeEquivalent (constr, args)))
-                                    | _ => assign (typeAVar, tB)
-                                    )
-                                else match(tA, eventual (makeEquivalent (constr, args)))
+            |   (TypeVar typeAVar, _) => assign (typeAVar, tB, bvMapB, typeA, typeB)
 
-                        |  _ => assign (typeAVar, tB)
-                        )
-                    else assign (typeAVar, tB)
-                )
-     
-            |   (_, TypeVar typeBVar) => (* and typeA is not *)
-                (
-                    (* We have to check for the special case of the identity type-construction. *)
-                    if tvNonUnifiable typeBVar orelse (case tvValue typeBVar of OverloadSet _ => true | _ => false)
-                    then
-                        (
-                        case tA of
-                            TypeConstruction {constr, args, ...} =>
-                                if isUndefined constr orelse not (tcIsAbbreviation constr)
-                                then
-                                    (
-                                    case tB of
-                                        TypeVar tv =>
-                                          (* This will fail if we are matching a signature because the
-                                             typeB will be non-unifiable. *)
-                                            assign (tv, tA) (* set typeB to typeA *)
-                                      | typB => match (tA, typB)
-                                    )
-                                else match(eventual (makeEquivalent (constr, args)), tB)
-                        |  _ =>
-                            (
-                            case tB of
-                                TypeVar tv =>
-                                  (* This will fail if we are matching a signature because the
-                                     typeB will be non-unifiable. *)
-                                    assign (tv, tA) (* set typeB to typeA *)
-                              | typB => match (tA, typB)
-                            )
-                        )
-                    else
-                        (
-                        case tB of
-                            TypeVar tv =>
-                              (* This will fail if we are matching a signature because the
-                                 typeB will be non-unifiable. *)
-                                assign (tv, tA) (* set typeB to typeA *)
-                          | typB => match (tA, typB)
-                        )
-                )
+            |   (_, TypeVar typeBVar) => (* and typeA is not *) assign (typeBVar, tA, bvMapA, typeA, tB) (* set typeB to typeA *)
 
-            |   (TypeConstruction({constr = tACons as
-                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidA, typeFunCount=tfCA, usedTvs, ...}, ...},...}, args=tAargs, ...}), 
-                 TypeConstruction ({constr = tBCons as
-                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidB, typeFunCount=tfCB, ...}, ...},...}, args=tBargs, ...})) =>
+            |   (BoundTypeVar _, _) => raise Misc.InternalError "match: bound variable in type"
+
+            |   (_, BoundTypeVar _) => raise Misc.InternalError "match: bound variable in type"
+
+                (* Type functions (type abbreviations).  We need to deal with these first because unwrapping
+                   them could allow a valid match.  Try to avoid unwrapping unnecessarily. *)
+            |   (TypeConstruction({constr =
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidA, typeFunCount=tfCA, usedTvs, resType=rtA, ...}, ...},...}, args=tAargs, ...}), 
+                 TypeConstruction ({constr =
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn{uid=uuidB, typeFunCount=tfCB, resType=rtB, ...}, ...},...}, args=tBargs, ...})) =>
                     if uuidA = uuidB
                     then (* They are the same ID: simply match the used type variables. *)
                     let
-                        fun matchArgs(a, b, n) = (if BoolVector.sub(usedTvs, n) then match(a, b) else (); n+1)
+                        fun matchArgs(a, b, n) = (if BoolVector.sub(usedTvs, n) then match((a, bvMapA), (b, bvMapB), typeA, typeB) else (); n+1)
                         val _ = ListPair.foldl matchArgs 0 (tAargs, tBargs);
                     in
                         ()
@@ -2511,41 +2011,35 @@ struct
                     else if tfCA >= tfCB
                         (* They are different: unwrap the one with the larger count.  It may refer to
                            the other one.  If they're equal we'll come back and unwrap the other later. *)
-                    then match (makeEquivalent (tACons, tAargs), tB)
-                    else match (tA, makeEquivalent (tBCons, tBargs))
+                    then match ((rtA, createTypeFnArgumentMap (tAargs, bvMapA)), (tB, bvMapB), typeA, typeB)
+                    else match ((tA, bvMapA), (rtB, createTypeFnArgumentMap (tBargs, bvMapB)), typeA, typeB)
 
-            |   (TypeConstruction({constr = tACons as
-                    TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args=tAargs, ...}),
-                 TypeConstruction ({constr = tBCons, ...})) =>
-                    if isUndefined tBCons
-                    then ()
-                    else (* We need to unwrap A. *)
-                        match (makeEquivalent (tACons, tAargs), tB)
+            |   (TypeConstruction({constr =
+                    TypeConstrs {identifier = TypeId{idKind = TypeFn{resType, ...}, ...},...}, args=tAargs, ...}), _) =>
+                    (* We need to unwrap A. *)
+                        match ((resType, createTypeFnArgumentMap(tAargs, bvMapA)), (tB, bvMapB), typeA, typeB)
 
-            |   (TypeConstruction({constr = tACons, ...}), 
-                 TypeConstruction ({constr = tBCons as
-                    TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args=tBargs, ...})) =>
-                    if isUndefined tACons
-                    then ()
-                    else match (tA, makeEquivalent (tBCons, tBargs))
+            |   (_,  TypeConstruction ({constr =
+                        TypeConstrs {identifier = TypeId{idKind = TypeFn{resType, ...}, ...},...}, args=tBargs, ...})) =>
+                    match ((tA, bvMapA), (resType, createTypeFnArgumentMap(tBargs, bvMapB)), typeA, typeB)
 
-            |   (TypeConstruction({constr = tACons, args=tAargs, ...}), 
-                 TypeConstruction ({constr = tBCons, args=tBargs, ...})) =>
+            |   (TypeConstruction({constr = tACons as TypeConstrs{identifier=tcIdA, ...}, args=tAargs, ...}), 
+                 TypeConstruction ({constr = tBCons as TypeConstrs{identifier=tcIdB, ...}, args=tBargs, ...})) =>
                 (
-                    if isUndefined tACons orelse isUndefined tBCons
-                    then () (* If we've had an undefined type constructor don't try to check further. *)
-                    else if sameTypeId (tcIdentifier tACons, tcIdentifier tBCons)
+                    if isUndefinedTypeConstr tACons orelse isUndefinedTypeConstr tBCons
+                    then ()
+                    else if sameTypeId (tcIdA, tcIdB)
                     then
                     let (* Same type constructor - do the arguments match? *)
                         fun matchLists []      []    = ()
                           | matchLists (a::al) (b::bl) =
                           (  
-                            match (a, b);
+                            match ((a, bvMapA), (b, bvMapB), typeA, typeB);
                             matchLists al bl
                           )
                           | matchLists _ _ = (* This should only happen as a result of
                                                 a different error. *)
-                                cantMatch (Atype, Btype, "(Different numbers of arguments)")
+                                cantMatch (typeA, typeB, "(Different numbers of arguments)")
                     in
                             matchLists tAargs tBargs
                     end
@@ -2555,102 +2049,259 @@ struct
                     else matchError(TypeConstructorError(tA, tB, tACons, tBCons))
                 )
 
-            |   (OverloadSet {typeset}, TypeConstruction {constr=tBCons, args=tBargs, ...}) =>
+            |   (OverloadSetVar chain, TypeConstruction {constr=tBCons, args=tBargs, ...}) =>
                 (* The candidate is an overloaded type and the target is a type
                    construction. *)
-                (
-                    if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
-                    then match (tA, makeEquivalent (tBCons, tBargs))
-                    else if isUndefined tBCons
-                    then ()
-                    else if tcIsAbbreviation tBCons
-                    then match (tA, makeEquivalent (tBCons, tBargs))
-                    else (* See if the target type is among those in the overload set. *)
-                        if null tBargs (* Must be a nullary type constructor. *)
-                            andalso isInSet(tBCons, typeset)
-                    then () (* ok. *)
+                let
+                    val (typeset, currentSet) = followRefChainToRef chain
+                in
+                    (* See if the target type is among those in the overload set. *)
+                    if null tBargs (* Must be a nullary type constructor. *)
+                            andalso isInSet(tBCons, currentSet)
+                    then typeset := ChainEnd[tBCons] (* ok. *)
                         (* Overload sets arise primarily with literals such as "1" and it's
                            most likely that the error is a mismatch between int and another
                            type rather than that the user assumed that the literal was
                            overloaded on a type it actually wasn't. *)
                     else
-                    case preferredOverload typeset of
-                        NONE => cantMatch (tA, tB, "(Different type constructors)")
-                    |   SOME prefType =>
-                        matchError(
-                            TypeConstructorError(
-                                mkTypeConstruction (tcName prefType, prefType,[], []),
-                                tB, prefType, tBCons))
-                )
+                    (
+                        case preferredOverload currentSet of
+                            NONE => cantMatch (tA, tB, "(Different type constructors)")
+                        |   SOME(prefType as TypeConstrs {name,...}) =>
+                            matchError(
+                                TypeConstructorError(
+                                    mkTypeConstruction (name, prefType,[], []),
+                                    tB, prefType, tBCons))
+                    )
+                end
 
-            |   (TypeConstruction {constr=tACons, args=tAargs, ...}, OverloadSet {typeset}) =>
-                (
-                    if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
-                    then match (makeEquivalent (tACons, tAargs), tB)
+            |   (TypeConstruction {constr=tACons, args=tAargs, ...}, OverloadSetVar chain) =>
+                let
+                    val (typeset, currentSet) = followRefChainToRef chain
+                in
                     (* We should never find an overload set as the target for a signature
                        match but it is perfectly possible for tB to be an overload set
                        when unifying two types.  *)
-                    else if null tAargs andalso isInSet(tACons, typeset)
-                    then () (* ok. *)
+                    if null tAargs andalso isInSet(tACons, currentSet)
+                    then typeset := ChainEnd[tACons] (* ok. *)
                     else
-                    case preferredOverload typeset of
-                        NONE => cantMatch (tA, tB, "(Different type constructors)")
-                    |   SOME prefType =>
-                        matchError(
-                            TypeConstructorError(
-                                tA, mkTypeConstruction (tcName prefType, prefType,[], []),
-                                tACons, prefType))
-                )
+                    (
+                        case preferredOverload currentSet of
+                            NONE => cantMatch (tA, tB, "(Different type constructors)")
+                        |   SOME(prefType as TypeConstrs {name,...}) =>
+                            matchError(
+                                TypeConstructorError(
+                                    tA, mkTypeConstruction (name, prefType,[], []),
+                                    tACons, prefType))
+                    )
+                end
 
-            |   (OverloadSet _ , OverloadSet _) => raise Misc.InternalError "Unification: OverloadSet/OverloadSet"
-                (* (OverloadSet , OverloadSet) should not occur because that should be
-                 handled in the (TypeVar, TypeVar) case. *)
-    
-            |   (TypeConstruction({constr = tACons, args=tAargs, ...}), _) =>
-                    if not (isUndefined tACons orelse not (tcIsAbbreviation tACons))
-                    (* Candidate is an alias - expand it. *)
-                    then match (makeEquivalent (tACons, tAargs), tB)
-                    else (* typB not a construction (but typeA is) *)
-                        cantMatch (tA, tB, "(Incompatible types)")
-    
-            |   (_, TypeConstruction {constr=tBCons, args=tBargs, ...}) => (* and typeA is not. *)
-                    (* May have a type equivalence e.g. "string t" matches int*string if  type
-                       'a t = int * 'a . Alternatively we may be matching a structure to a signature
-                       where the signature says "type t" and the structure contains "type 
-                       t = int->int" (say). We need to set the type in the signature to int->int. *)
-                    if not (isUndefined tBCons orelse not (tcIsAbbreviation tBCons))
-                    then match (tA, makeEquivalent (tBCons, tBargs))
-                    else if isUndefined tBCons
-                    then ()
-                    else if tcIsAbbreviation tBCons
-                    then match (tA, makeEquivalent (tBCons, tBargs))
-                    else cantMatch (tB, tA, "(Incompatible types)")
+            |   (OverloadSetVar chainA, OverloadSetVar chainB) =>
+                let
+                    val (finalA, currentSetA) = followRefChainToRef chainA
+                    val (finalB, currentSetB) = followRefChainToRef chainB
+                in
+                    if finalA = finalB (* Same reference? *)
+                    then () (* If they're already linked don't do anything. *)
+                    else
+                    let
+                        (* The lists aren't ordered so we just have to go
+                           through by hand. *)
+                        fun intersect(_, []) = []
+                        |   intersect(a, H::T) =
+                                if isInSet(H, a) then H::intersect(a, T) else intersect(a, T)
+                        val newSet = intersect(currentSetA, currentSetB)
+                    in
+                        case newSet of
+                            [] => cantMatch (typeA, typeB, "(Incompatible overloadings)")
+                        |   _ =>
+                        (
+                            (* These have to be linked so that any subsequent unification affects all. *)
+                            finalB := ChainEnd newSet; (* Either way round *)
+                            finalA := ChainRef finalB
+                        )
+                    end
+                end
 
-     
+            |   (TypeConstruction _, _) =>
+                    cantMatch (tA, tB, "(Incompatible types)")
+
+            |   (_, TypeConstruction _) => (* and typeA is not. *)
+                    cantMatch (tB, tA, "(Incompatible types)")
+
             |   (FunctionType {arg=typAarg, result=typAres, ...},
                  FunctionType {arg=typBarg, result=typBres, ...}) =>
                 ( (* must be unifiable functions *)
                     (* In principle it doesn't matter whether we unify arguments or
                        results first but it could affect the error messages.  Is this
                        the best way to do it? *)
-                    match (typAarg, typBarg);
-                    match (typAres, typBres)
+                    match ((typAarg, bvMapA), (typBarg, bvMapB), typeA, typeB);
+                    match ((typAres, bvMapA), (typBres, bvMapB), typeA, typeB)
                 )
 
-            |   (EmptyType, EmptyType) => ()
-                    (* This occurs only with exceptions - empty means no argument *)
+                (* Explicit type variables.  They can only match themselves. *)
+            |   (FreeTypeVar{uid=uidA, ...}, FreeTypeVar{uid=uidB, ...}) =>
+                    if uidA = uidB then ()
+                    else cantMatch (typeA, typeB, "(Different explicit type variables)")
 
-            |   (LabelledType recA, LabelledType recB) =>
-                    (* Unify the records, but discard the result because at least one of the
-                     records is frozen. *)
-                    (unifyRecords (recA, recB, tA, tB); ())
-        
+            |   (FreeTypeVar _, _) =>
+                    cantMatch (typeA, typeB, "(Type contains an explicit type variable)")
+
+            |   (_, FreeTypeVar _) =>
+                    cantMatch (typeA, typeB, "(Type contains an explicit type variable)")
+
+            |   (LabelledRecord recA, LabelledRecord recB) =>
+                    (* Unify the records, but discard the result. *)
+                    (matchRecords (recA, tA, bvMapA, true, false, recB, tB, bvMapB, true, false); ())
+
+                (* canonicalise returns LabelledRecord if the FlexibleRecordVar is now frozen *)
+            |   (LabelledRecord recA, FlexibleRecordVar{recList, equality=ref eqVar, fullList, ...}) =>
+                let
+                    val equality = followRefChainToEnd eqVar
+                    val (reclRef, recB) = followRefChainToRef recList
+                    val (fullRef, _) = followRefChainToRef fullList
+                    val finalList = matchRecords (recA, tA, bvMapA, true, false, recB, tB, bvMapB, false, equality)
+                    val () = reclRef := ChainEnd finalList
+                    val () = fullRef := ChainEnd {names=map #name finalList, frozen=true}
+                in
+                    ()
+                end
+
+            |   (FlexibleRecordVar{recList, equality=ref eqVar, fullList, ...}, LabelledRecord recB) =>
+                let
+                    val equality = followRefChainToEnd eqVar
+                    val (reclRef, recA) = followRefChainToRef recList
+                    val (fullRef, _) = followRefChainToRef fullList
+                    val finalList = matchRecords (recA, tA, bvMapA, false, equality, recB, tB, bvMapB, true, false)
+                    val () = reclRef := ChainEnd finalList
+                    val () = fullRef := ChainEnd {names=map #name finalList, frozen=true}
+                in
+                    ()
+                end
+
+            |   (FlexibleRecordVar{recList=recListA, equality=eqA, level=levA, fullList=fullListA, ...},
+                 FlexibleRecordVar{recList=recListB, equality=eqB, level=levB, fullList=fullListB, ...}) =>
+                let
+                    val (reclRefA, recA) = followRefChainToRef recListA
+                    val (reclRefB, recB) = followRefChainToRef recListB
+                    val (eqVarA, eqA) = followRefChainToRef eqA
+                    val (eqVarB, eqB) = followRefChainToRef eqB
+                    val (levVarA, levelA) = followRefChainToRef levA
+                    val (levVarB, levelB) = followRefChainToRef levB
+                    val (fullRefA, _) = followRefChainToRef fullListA
+                    val (fullRefB, _) = followRefChainToRef fullListB
+                    val minLev =
+                        case (levelA, levelB) of
+                            (NotGeneralisable v1, NotGeneralisable v2) =>
+                                NotGeneralisable(Int.min (v1, v2))
+                        |   (v1 as NotGeneralisable _, _) => v1
+                        |   (_, v2 as NotGeneralisable _) => v2
+                        |   (Generalisable, Generalisable) => Generalisable
+                in
+                    if reclRefA = reclRefB (* Do we have the same record list? i.e. unifying with itself? *)
+                    then ()
+                    else
+                    let
+                        val finalList = matchRecords (recA, tA, bvMapA, false, eqA, recB, tB, bvMapB, false, eqB)
+                        val fullNames = map #name finalList
+                        val () = reclRefA := ChainEnd finalList
+                        val () = reclRefB := ChainRef reclRefA
+                        (* Even if they're different record instances they could already share generic instances. *)
+                        val () =
+                            if fullRefA = fullRefB
+                            then ()
+                            else (fullRefA := ChainEnd{names=fullNames, frozen=false}; fullRefB := ChainRef fullRefA)
+                    in
+                        ()
+                    end;
+                    (* Link the properties and set to the common value. *)
+                    if eqVarA = eqVarB
+                    then ()
+                    else (eqVarA := ChainEnd(eqA orelse eqB); eqVarB := ChainRef eqVarA);
+                    if levVarA = levVarB
+                    then ()
+                    else (levVarA := ChainEnd minLev; levVarB := ChainRef levVarA)
+                end
+
             |   _ => cantMatch (tA, tB, "(Incompatible types)")
 
         end (* match *)
 
+        and matchRecords(recA, typA, bvMapA, frozenA, equalityA, recB, typB, bvMapB, frozenB, equalityB) =
+        let
+            (* Match up the fields.  Return any fields that don't correspond along with the unified list.
+               Unmatched fields are possible if the other record is flexible.
+               If fields are discarded but the other record is an equality type they must nonetheless
+               be checked for equality. *)
+            fun matchFields([], [], combined, unmatchedA, unmatchedB) = (combined, unmatchedA, unmatchedB)
+
+            |   matchFields(fieldA :: fieldsA, [], combined, unmatchedA, unmatchedB) =
+                    matchFields(fieldsA, [], addField(fieldA, bvMapA) :: combined, fieldA :: unmatchedA, unmatchedB)
+
+            |   matchFields([], fieldB :: fieldsB, combined, unmatchedA, unmatchedB) =
+                    matchFields([], fieldsB, addField(fieldB, bvMapB) :: combined, unmatchedA, fieldB :: unmatchedB)
+
+            |   matchFields(aList as (fieldA as {name=nameA, typeOf=typeA}) :: fieldsA,
+                            bList as (fieldB as {name=nameB, typeOf=typeB}) :: fieldsB, combined, unmatchedA, unmatchedB) =
+                (
+                    case compareLabels (nameA, nameB) of
+                        EQUAL =>
+                        (
+                            match ((typeA, bvMapA), (typeB, bvMapB), typA, typB);
+                            matchFields(fieldsA, fieldsB, addField(fieldA, bvMapA) :: combined, unmatchedA, unmatchedB)
+                        )
+                    |   LESS (* aName < bName *) =>
+                            matchFields(fieldsA, bList, addField(fieldA, bvMapA) :: combined, fieldA :: unmatchedA, unmatchedB)
+                    |   GREATER (* aName > bName *) =>
+                            matchFields(aList, fieldsB, addField(fieldB, bvMapB) :: combined, unmatchedA, fieldB :: unmatchedB)
+                )
+
+            (* When adding fields we need to use a type variable to include the maps. *)
+            and addField({name, typeOf}, bvMap) =
+                {name=name, typeOf=TypeVar(makeTv {value=SOME(Instance(typeOf, bvMap)), level=Generalisable, equality=false })}
+
+            val (combinedList, unmatchedA, unmatchedB) = matchFields(recA, recB, [], [], [])
+            val combinedList = List.rev combinedList (* Get the list back into canonical order *)
+            (* Report on unmatched fields.  Try to be helpful here.  It could be that a field has
+               been misspelled in one field in which case we will have two mismatches. *)
+            val () =
+                case (frozenA, frozenB, unmatchedA, unmatchedB) of
+                    (true, true, {name=nameA, ...} :: _, {name=nameB, ...} :: _) =>
+                        cantMatch (typA, typB, "(Field " ^ nameA ^ " present in one type but " ^ nameB ^ " in the other)")
+                |   (_, true, {name=nameA, ...} :: _, _) =>
+                        (* If B is frozen we cannot have any fields that aren't present in it. *)
+                        cantMatch (typA, typB, "(Field " ^ nameA ^ " present in one type but not in the other)")
+                |   (true, _, _, {name=nameB, ...} :: _) =>
+                        (* If A is frozen we cannot have any fields that aren't present in it. *)
+                        cantMatch (typA, typB, "(Field " ^ nameB ^ " present in one type but not in the other)")
+                    (* Otherwise we either have a successful match or any excess fields are in the other record
+                       in a flexible record. *)
+                |   (_, _, unmatchedA, unmatchedB) =>
+                    let
+                        fun checkEquality bvMap {name, typeOf} =
+                            if equalityForInstance(typeOf, bvMap)
+                            then ()
+                            else cantMatch (typA, typB, "(Field " ^ name ^ " requires an equality type)")
+                    in
+                        (* Apply the appropriate equality checks. *)
+                        if equalityA then List.app (checkEquality bvMapB) unmatchedB  else ();
+                        if equalityB then List.app (checkEquality bvMapA) unmatchedA else ()
+                    end
+        in
+            combinedList
+        end
+
+        val argsA as (typeA, _) =
+            case instanceA of
+                SimpleInstance ty => (ty, fn _ => NONE)
+            |   Instance i => i
+
+        val argsB as (typeB, _)=
+            case instanceB of
+                SimpleInstance ty =>  (ty, fn _ => NONE)
+            |   Instance i => i
+        val () = match (argsA, argsB, typeA, typeB)
     in
-        match (Atype, Btype);
         ! matchResult
     end (* unifyTypes *)
 
@@ -2666,18 +2317,18 @@ struct
                 [
                     PrettyString ("Can't " ^ what (* "match" if a signature, "unify" if core lang. *)),
                     PrettyBreak (1, 0),
-                    display (alpha, 1000 (* As deep as necessary *), alphaTypeEnv),
+                    display (SimpleInstance alpha, 1000 (* As deep as necessary *), alphaTypeEnv),
                     PrettyBreak (1, 0),
                     PrettyString "to",
                     PrettyBreak (1, 0),
-                    display (beta, 1000 (* As deep as necessary *), betaTypeEnv),
+                    display (SimpleInstance beta, 1000 (* As deep as necessary *), betaTypeEnv),
                     PrettyBreak (1, 0),
                     PrettyString reason                        
                 ])
 
         |   reportError(TypeConstructorError(alpha: types, beta: types, alphaCons, betaCons)) =
             let
-                fun expandedTypeConstr(ty, tyEnv, tyCons) =
+                fun expandedTypeConstr(ty, tyEnv, TypeConstrs{identifier=TypeId { description, ...}, name=tcName, ...}) =
                 let
                     fun lastPart name = #second(splitString name)
 
@@ -2686,7 +2337,7 @@ struct
                     fun printWithDesc{ location, name, description } =
                         PrettyBlock(3, false, [],
                             [ display (ty, 1000, tyEnv) ]
-                            @ (if lastPart name = lastPart(tcName tyCons) then []
+                            @ (if lastPart name = lastPart tcName then []
                                else
                                 [
                                     PrettyBreak(1, 0),
@@ -2705,19 +2356,18 @@ struct
                               )
                             )
                 in
-                    case tcIdentifier tyCons of
-                        TypeId { description, ...} => printWithDesc description
+                    printWithDesc description
                 end
             in
                 PrettyBlock(3, false, [],
                     [
                         PrettyString ("Can't " ^ what (* "match" if a signature, "unify" if core lang. *)),
                         PrettyBreak (1, 0),
-                        expandedTypeConstr(alpha, alphaTypeEnv, alphaCons),
+                        expandedTypeConstr(SimpleInstance alpha, alphaTypeEnv, alphaCons),
                         PrettyBreak (1, 0),
                         PrettyString (if what = "unify" then "with" else "to"),
                         PrettyBreak (1, 0),
-                        expandedTypeConstr(beta, betaTypeEnv, betaCons),
+                        expandedTypeConstr(SimpleInstance beta, betaTypeEnv, betaCons),
                         PrettyBreak (1, 0),
                         PrettyString "(Different type constructors)"                        
                     ])
@@ -2727,51 +2377,19 @@ struct
         reportError
     end
 
-  (* Given a function type returns the first argument if the
-     function takes a tuple otherwise returns the only argument.
-     Extended to include the case where the argument is not a function
-     in order to work properly for overloaded literals. *)
-  fun firstArg(FunctionType{arg=
-        LabelledType { recList = {typeof, ...} ::_, ...}, ...}) =
-            eventual typeof
-   |  firstArg(FunctionType{arg, ...}) = eventual arg
-   |  firstArg t = t
-
-    (* Returns an instance of an overloaded function using the supplied
-       list of type constructors for the overloading. *)
-    fun generaliseOverload(t, constrs, isConverter) =
-    let
-        (* Returns the result type of a function. *)
-        fun getResult(FunctionType{result, ...}) = eventual result
-        |   getResult _ = raise Misc.InternalError "getResult - not a function";
-
-        val arg = if isConverter then getResult t else firstArg t
-    in
-        case arg of
-            TypeVar tv =>
-            let
-                (* The argument should be a type variable, possibly set to
-                   an empty overload set.  This should be replaced by
-                   the current overload set in the copied function type. *)
-                val newSet = mkOverloadSet constrs
-                val (t, _) = generaliseTypes(t, fn old => if sameTv(old, tv) then SOME newSet else NONE)
-            in
-                (t, [newSet])
-            end
-          | _ => raise Misc.InternalError "generaliseOverload - arg is not a type var"
-    end
     (* Prints out a type constructor e.g. type 'a fred = 'a * 'a
        or datatype 'a joe = bill of 'a list | mary of 'a * int or
        simply type 'a abs if the type is abstract. *)
     fun displayTypeConstrsWithMap (
         TypeConstrSet(
-            TypeConstrs{identifier=TypeId{idKind=TypeFn{tyVars=args, resType=result, ...}, ...}, name, ...}, []), depth, typeEnv, sigMap) =
+            TypeConstrs{identifier=TypeId{idKind=TypeFn{arity, resType=result, ...}, ...}, name, ...}, []), depth, typeEnv, sigMap) =
          (* Type function *)
         if depth <= 0 
         then PrettyString "..."
         else
         let
             val typeV = varNameSequence () (* Local sequence for this binding. *)
+            val args = List.tabulate(arity, createBoundVar false)
         in
             PrettyBlock (3, false, [],
                 PrettyString "type" ::
@@ -2782,12 +2400,12 @@ struct
                     PrettyBreak(1, 0),
                     PrettyString "=",
                     PrettyBreak(1, 0),
-                    tDisp(result, depth-1, typeV, typeEnv, sigMap)
+                    tDisp(SimpleInstance result, depth-1, typeV, typeEnv, sigMap)
                 ]
                 )
         end
 
-    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{identifier, typeVars, ...}, [] (* No constructors *)), depth, _, _) =
+    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{identifier, name, ...}, [] (* No constructors *)), depth, _, _) =
         (* Abstract type or type in a signature. *)
         if depth <= 0 
         then PrettyString "..."
@@ -2795,11 +2413,11 @@ struct
             PrettyString (
                 if isEquality identifier then "eqtype" else "type") ::
             PrettyBreak (1, 0) ::
-            printTypeVars (typeVars, depth, varNameSequence ()) @
-            [PrettyString (#second(splitString(tcName tCons)))]
+            printTypeVars (List.tabulate(tcArity tCons,  createBoundVar false), depth, varNameSequence ()) @
+            [PrettyString (#second(splitString name))]
             )
 
-    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{name, locations, ...}, tcConstructors), depth, typeEnv, sigMap) =
+    |   displayTypeConstrsWithMap (TypeConstrSet(tCons as TypeConstrs{name=tcName, locations, ...}, tcConstructors), depth, typeEnv, sigMap) =
             (* It has constructors - datatype declaration *)
         if depth <= 0 
         then PrettyString "..."
@@ -2807,16 +2425,14 @@ struct
         let
             val typeV = varNameSequence ()
             (* Construct a ('a, 'b, 'c) tyCons construction for the result types
-               of each of the constructors.  N.B. We use the original type
-               constructors because they have the appropriate equality type properties.
-               datatype 'a t = A of 'a is not the same as ''a t = A of ''a. *)
-            val typeVars = tcTypeVars tCons
-            val typeResult = mkTypeConstruction(name, tCons, map TypeVar typeVars, locations)
+               of each of the constructors. *)
+            val typeVars = List.tabulate(tcArity tCons,  createBoundVar false)
+            val typeResult = mkTypeConstruction(tcName, tCons, typeVars, locations)
 
             (* Print a single constructor (blocked) *)
             fun pValConstr (first, name, typeOf, depth) =
             let
-                val (t, _) = generalise typeOf
+                val t = instanceToType(#1(generalise typeOf)) (* Why is this generalising? *)
                 val firstBreak = PrettyBreak (1, if first then 2 else 0)
             in
                 case t of
@@ -2826,7 +2442,7 @@ struct
                            We have to unify the result type of the function with the
                            ('a, 'b, 'c) tyCons type so that we get the correct type variables
                            in the argument.  We just print the argument of the function. *)
-                        val _ = unifyTypes(result, typeResult)
+                        val _ = unifyTypes(SimpleInstance result, SimpleInstance typeResult)
                     in
                         [
                             firstBreak,
@@ -2843,7 +2459,7 @@ struct
                             [
                                 PrettyBreak (1, 4),
                                 (* print the type as a single block of output *)
-                                tDisp (arg, depth - 1, typeV, typeEnv, sigMap)
+                                tDisp (SimpleInstance arg, depth - 1, typeV, typeEnv, sigMap)
                             ]
                             else [])
                             )
@@ -2861,20 +2477,17 @@ struct
                     ]
             end
 
-            fun valName (Value{name, ...}) = name
-            fun valTypeOf (Value{typeOf, ...}) = typeOf
-
             (* Print a sequence of constructors (unblocked) *)
             fun pValConstrRest ([],     _    ): pretty list = []
-            |   pValConstrRest (H :: T, depth): pretty list =
+            |   pValConstrRest ((Value{typeOf=ValueType valType, name, ...}):: T, depth): pretty list =
                 if depth < 0 then []           
-                else pValConstr (false, valName H, valTypeOf H, depth) @
+                else pValConstr (false, name, valType, depth) @
                         pValConstrRest (T, depth - 1)
            
             fun pValConstrList ([],     _    ) = PrettyString "" (* shouldn't occur *)    
-            |   pValConstrList (H :: T, depth) =
+            |   pValConstrList ((Value{typeOf=ValueType valType, name, ...}) :: T, depth) =
                     PrettyBlock (2, true, [],
-                        pValConstr (true, valName H, valTypeOf H, depth) @
+                        pValConstr (true, name, valType, depth) @
                         pValConstrRest (T, depth - 1)
                     )
 
@@ -2885,7 +2498,7 @@ struct
                                 PrettyString "datatype" ::
                                 PrettyBreak (1, 2) ::
                                 printTypeVars (typeVars, depth, typeV) @
-                                [ PrettyString(#second(splitString(tcName tCons))), PrettyBreak(1, 0), PrettyString "=" ]
+                                [ PrettyString(#second(splitString tcName)), PrettyBreak(1, 0), PrettyString "=" ]
                         ),
                         pValConstrList (tcConstructors, depth - 1)
                     ]
@@ -2900,236 +2513,293 @@ struct
        it returns the "best".  This is called in the third pass so it
        should never be called if there is not at least one type that
        is possible. *)
-    fun typeConstrFromOverload(f, _) =
+    fun typeConstrFromOverload overloadedFn =
     let
-    fun prefType(TypeVar tvar) =
-            ( (* If we still have an overload set that's because it has
-                 not reduced to a single type.  In ML 97 we default to
-                 int, real, word, char or string in that order.  This
-                 works correctly for overloading literals so long as
-                 the literal conversion functions are correctly installed. *)
-            case tvValue tvar of
-                OverloadSet{typeset} =>
-                    let
-                        (* If we accept this type we have to freeze the
-                            overloading to this type.
-                            I'm not happy about doing this here but it
-                            seems the easiest solution. *)
-                        fun freezeType tcons =
-                            (
-                            tvSetValue(tvar,
-                                mkTypeConstruction(tcName tcons, tcons, [], []));
-                            tcons
-                            )
-                    in
-                        case preferredOverload typeset of
-                            SOME tycons => freezeType tycons
-                        |   NONE => raise Misc.InternalError "typeConstrFromOverload: No matching type"
-                    end
-              | _ => raise Misc.InternalError "typeConstrFromOverload: No matching type" (* Unbound or flexible record. *)
+        fun prefType(OverloadSetVar(ref typeset)) =
+            (
+                case followRefChainToEnd typeset of
+                    [tycons] => tycons
+                |   types =>
+                (
+                    case preferredOverload types of
+                        SOME tycons => tycons
+                    |   NONE => raise Misc.InternalError "typeConstrFromOverload: No matching type"
+                )
             )
-     |  prefType(TypeConstruction{constr, args, ...}) =
-            if not (tcIsAbbreviation constr)
-            then constr (* Generally args will be nil in this case but
-                           in the special case of looking for an equality
-                           function for 'a ref or 'a array it may not be.  *)
-            else prefType (makeEquivalent (constr, args))
-     |  prefType _ = raise Misc.InternalError "typeConstrFromOverload: No matching type"
+
+        |   prefType(TypeConstruction{constr as TypeConstrs {identifier = TypeId{idKind = TypeFn _, ...},...}, args, ...}) =
+                prefType (makeEquivalent (constr, args))
+
+        |   prefType(TypeConstruction{constr, ...}) = constr
+
+        |   prefType _ = raise Misc.InternalError "typeConstrFromOverload: No matching type"
+
+        (* Given a function type returns the first argument if the
+           function takes a tuple otherwise returns the only argument.
+           Extended to include the case where the argument is not a function
+           in order to work properly for overloaded literals. *)
+        fun firstArg(FunctionType{arg=LabelledRecord ({typeOf, ...} ::_), ...}) = eventual typeOf
+        |   firstArg(FunctionType{arg, ...}) = eventual arg
+        |   firstArg t = t
     in
-        prefType(firstArg(eventual f))
-    end;
+        prefType(firstArg(eventual overloadedFn))
+    end
 
-    (* Return the result type of a function.  Also used to test if the value is
-       a function type. *)
-    fun getFnArgType t =
-    case eventual t of
-        FunctionType {arg, ... } => SOME arg
-    |   _ => NONE
-    
-
-  (* Assigns type variables to variables with generalisation permitted
-     if their level is at least that of the current level.
-     In ML90 mode this produced an error message for any top-level
-     free imperative type variables.  We don't do that in ML97 because
-     it is possible that another declaration may "freeze" the type variable
-     before the composite expression reaches the top level. *)
-  fun allowGeneralisation (t, level, nonExpansive, lex, location, moreInfo, typeEnv) =
+  (* Called at the end of a val or fun binding.
+     There are various actions here depending on whether the expression is non-expansive
+     and whether this is the top level.
+     The current version side-effects type variables by adding on a generalisable type
+     variable at the end of the chain if the type variable can be generalised.
+     *)
+    fun allowGeneralisation (instance, level, checkOverloadFlex, giveError) =
     let
-        fun giveError(s1: string, s2: string) =
-        let
-            (* Use a single sequence. *)
-            val vars : typeVarForm -> string = varNameSequence ();
-            open DEBUG
-            val parameters = debugParams lex
-            val errorDepth = getParameter errorDepthTag parameters
-        in
-            reportError lex
-            {
-                hard = true,
-                location = location,
-                message =
-                    PrettyBlock (3, false, [],
-                        [
-                            PrettyString s1,
-                            PrettyBreak (1, 0),
-                            tDisp (t, errorDepth, vars, typeEnv, NONE),
-                            PrettyBreak (1, 0),
-                            PrettyString s2
-                        ]
-                    ),
-                context = SOME(moreInfo ())
-            }
-        end
+        (* Map from type variables to bound variables we have already made.
+           Searching the list to find a type variable is quadratic in the number of type variables.
+           Instead, for simple type variables we set the type variable to the bound variable
+           and reuse it. *)
+        val freeTypeVarMapList: (uniqueId * tvIndex) list ref = ref nil
+        val flexRecordMapList: ({typeOf: types, name: string} list refChain ref * tvIndex) list ref = ref nil
+        val createdTypeVars: instanceType option refChain ref list ref = ref nil
 
-        local
-            open DEBUG
-            val parameters = debugParams lex
-        in
-            val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
-        end
+        (* Perform checks and return the generic version with the templates. *)
+        fun createGeneric(instance, templates: typeVarTemplate list, nextBvCount) =
+        case canonicalise instance of
+            (typ as TypeVar(TypeVariable{level=ref lvl, equality=ref eq, link, ...}), _) =>
+                if (case followRefChainToEnd lvl of NotGeneralisable v => v < level | Generalisable => false)
+                then (* Explicit type variable at an outer level.  Same whether expansive or not.
+                        For the moment just return this type variable. *)
+                    (typ, templates, nextBvCount)
 
-        fun general t (genArgs as (showError, nonExpansive)) =
-            case eventual t of
-                TypeVar tvar =>
+                else (* If we've already made a bound variable here we need to reuse it. *)
                 let
-                    val argSet =
-                        if (case tvLevel tvar of NotGeneralisable v => v >= level | Generalisable => false)
-                            andalso (case tvValue tvar of OverloadSet _ => false | _ => true)
-                        then
-                        let
-                            (* Make a new generisable type variable, except that type
-                               variables in an expansive context cannot be generalised.
-                               We also don't generalise if this is an overload set.
-                               The reason for that is that it allows us to get overloading
-                               information from the surrounding context.
-                               e.g. let fun f x y = x+y in f 2.0 end.  An alternative
-                               would be take the default type (in this case int).
-                               DCJM 1/9/00. *)
-                            val nonCopiable = not nonExpansive
-                            val newLevel =
-                               if nonCopiable then NotGeneralisable(level-1) else Generalisable (* copiable *);
-
-                            val isOk =
-                                (* If the type variable has top-level scope then we have
-                                   a free type variable.  We only want to generate this
-                                   message once even if we have multiple type variables.*)
-                                (* If the type variable is non-unifiable and the expression is
-                                   expansive then we have an error since this will have to
-                                   be a monotype.  *)
-                                if tvNonUnifiable tvar andalso nonCopiable andalso showError
-                                then
-                                    (
-                                    giveError("Type", "includes a free type variable");
-                                    false
-                                    )
-                                else showError;
-                            (* It may be a flexible record so we have to transfer the
-                               record to the new variable. *)
-                            val newTypeVar =
-                                makeTv {value=tvValue tvar, level=newLevel, equality=tvEquality tvar,
-                                        nonunifiable=if nonCopiable then (tvNonUnifiable tvar) else false,
-                                        printable=tvPrintity tvar}
-                        in
-                            tvSetValue (tvar, TypeVar newTypeVar);
-                            (* If we are using the "narrow" context for overloading and
-                               flexible records we should apply this here.  Otherwise it is
-                               dealt with in the next pass when we have the full program context. *)
-                            case (checkOverloadFlex, tvValue tvar) of
-                                (true, LabelledType _) => giveError("Type", "is an unresolved flexible record")
-                            |   (true, OverloadSet {typeset, ...}) =>
-                                (   (* Set this to the "preferred" type.  Typically this is "int" but for overloaded literals
-                                       (e.g. 0w0) it could be something else. *)
-                                    case preferredOverload typeset of
-                                        SOME tycons =>
-                                            tvSetValue(tvar,
-                                                mkTypeConstruction(tcName tycons, tycons, [], []))
-                                    |   NONE => raise Misc.InternalError "general: No matching type"
-                                )
-                            |   _ => ();
-                            (isOk, nonExpansive)
-                        end
-                        else genArgs
+                    val isEq = followRefChainToEnd eq
+                    val (link, _) = followRefChainToRef link
+                    val newVar = createNewBoundVar isEq (TVIndex nextBvCount)
+                    val () = createdTypeVars := link :: (!createdTypeVars)
+                    val () = link := ChainEnd(SOME(SimpleInstance newVar))
                 in
-                    general (tvValue tvar) argSet (* Process any flexible record. *)
+                   (newVar, TemplPlain { equality= isEq} :: templates, nextBvCount+1)
                 end
 
-            |   TypeConstruction {args,
-                     constr=TypeConstrs{
-                        identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
-                    (* There is a pathological case here.  If we have a type equivalence
-                       which contains type variables that do not occur on the RHS
-                       (e.g. type 'a t = int) then we generalise over them even with an
-                       expansive expression.  This is because the semantics treats type
-                       abbreviations as type functions and so any type variables that
-                       are eliminated by the function application do not appear in the
-                       "type" that the semantics applies to the expression. *)
-                    let
-                        fun processArg(tvar, ((showError, nonExpansive), n)) =
-                            (general tvar (showError, nonExpansive orelse not(BoolVector.sub(usedTvs, n))), n+1)
-                        (* Process any arguments that have not been processed in the equivalent. *)
-                        val (r, _) = List.foldr processArg (genArgs, 0) args
-                    in
-                        r
-                    end
+        |   (typ as FreeTypeVar{name, equality, level=NotGeneralisable fLevel, uid, ...}, _) =>
+                (* If this is defined at an outer level it's not generalisable here. *)
+                if fLevel < level then (typ, templates, nextBvCount)
+                else
+                (
+                    (* Generalisable here: See if we have already made a bound var. *)
+                    case List.find(fn (id, _) => id = uid) (!freeTypeVarMapList) of
+                        NONE =>
+                        let
+                            val newIndex = TVIndex(List.length templates)
+                            val () = freeTypeVarMapList := (uid, newIndex) :: (!freeTypeVarMapList)
+                        in
+                            (createNewBoundVar equality newIndex, TemplPlain { equality=equality } :: templates, nextBvCount+1)
+                        end
+                    |   SOME(_, index) => (BoundTypeVar(name, index), templates, nextBvCount)
+                )  
+         
+        |   (FreeTypeVar{level=Generalisable, ...}, _) => raise Misc.InternalError "createGeneric: generalisable free"
 
-            |   TypeConstruction {args, ...} =>
-                    List.foldr (fn (t, v) => general t v) genArgs args
+        |   (b as BoundTypeVar(_, index), bvMap) =>
+            (
+                case bvMap index of
+                    SOME ty => createGeneric((ty, bvMap), templates, nextBvCount)
+                |   NONE => (b (* Newly created. *), templates, nextBvCount)
+            )
 
-            |   FunctionType {arg, result} => general arg (general result genArgs)
-
-            |   LabelledType {recList,...} =>
-                    List.foldr (fn ({ typeof, ... }, v) => general typeof v) genArgs recList
-
-            |   _ => genArgs
-    in
-        general t (true, nonExpansive);
-        ()
-    end (*  end allowGeneralisation *);
-
-  (* Check for free type variables at the top level.  Added for ML97.  This replaces the
-     test in allowGeneralisation above and is applied to all top-level
-     values including those in structures and functors.  *)
-  (* I've changed this from giving an error message, which prevented the
-     code from evaluating, to giving a warning and setting the type
-     variables to unique type variables.  That allows, for example,
-     fun f x = raise x; f Subscript; to work.  DCJM 8/3/01. *)
-  fun checkForFreeTypeVariables(valName: string, ty: types, lex: lexan, printAndEqCode) : unit =
-  let
-    (* Generate new names for the type constructors. *)
-    val count = ref 0
-    fun genName num =
-        (if num >= 26 then genName (num div 26 - 1) else "")
-        ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
-
-    fun checkTypes (TypeVar tvar) () =
-        if isEmpty(tvValue tvar) andalso tvLevel tvar = NotGeneralisable 1
-        then (* The type variable is unbound (specifically, not
-                an overload set) and it is not generic i.e. it
-                must have come from an expansive expression. *)
+        |   (typ as OverloadSetVar typeSetVar, _) =>
+            if checkOverloadFlex
+            then (* Narrow context for overloading: select "preferred" type. *)
             let
-                val name = "_" ^ genName(!count)
-                val _ = count := !count + 1;
-                val declLoc = location lex (* Not correct but OK for the moment. *)
-                val declDescription =
-                    { location = declLoc, name = name, description = "Constructed from a free type variable." }
-                val tCons =
-                    makeTypeConstructor (name, [],
-                        makeFreeId(0, Global(printAndEqCode()), tvEquality tvar, declDescription),
-                        [DeclaredAt declLoc]);
-                val newVal = mkTypeConstruction(name, tCons, [], [])
+                val (v, typeset) = followRefChainToRef typeSetVar
             in
-                warningMessage(lex, location lex, 
-                    concat["The type of (", valName,
-                        ") contains a free type variable. Setting it to a unique monotype."]);
-                tvSetValue (tvar, newVal)
-            end
-        else ()
-     |  checkTypes _ () = ()
+                case preferredOverload typeset of
+                    SOME (constr as TypeConstrs {name, locations, ...}) =>
+                    (
+                        v := ChainEnd[constr];
+                        (TypeConstruction{constr=constr, args=[], locations=locations, name=name}, templates, nextBvCount)
+                    )
 
-  in
-      foldType checkTypes ty ();
-    ()
-  end
+                |   NONE => raise Misc.InternalError "general: No matching type"
+            end
+            else (* Normal setting: find overloading from full context. Return the current overload set. *)
+                (typ, templates, nextBvCount)
+
+        |   (TypeConstruction {constr, args, locations, name}, bvMap) =>
+            let
+                fun copyEntry(ty, (resList, templs: typeVarTemplate list, newBvCount, n)) =
+                let
+                    val (copiedTyp, newtempls, newBvCount) = createGeneric((ty, bvMap), templs, newBvCount)
+                in
+                    (copiedTyp :: resList, newtempls, newBvCount, n+1)
+                end
+                val (copiedArgs, resTemplates, newBvCount, _) = List.foldl copyEntry ([], templates, nextBvCount, 0) args
+            in
+                (TypeConstruction{constr=constr, args=List.rev copiedArgs, locations=locations, name=name}, resTemplates, newBvCount)
+            end
+
+        |   (FunctionType {arg, result}, bvMap) =>
+            let
+                val (copiedArg, argTemplates, argBvCount) = createGeneric((arg, bvMap), templates, nextBvCount)
+                val (copiedRes, resTemplates, resBvCount) = createGeneric((result, bvMap), argTemplates, argBvCount)
+            in
+                (FunctionType {arg = copiedArg, result = copiedRes}, resTemplates, resBvCount)
+            end
+
+        |   (LabelledRecord recList, bvMap) =>
+            let
+                fun copyRecordEntry({name, typeOf}, (fields, templs, bvCount)) =
+                let
+                    val (copiedTyp, newtempls, newBv) = createGeneric((typeOf, bvMap), templs, bvCount)
+                in
+                    ({name=name, typeOf=copiedTyp} :: fields, newtempls, newBv)
+                end
+                val (copiedList, resTempls, resBvCount) = List.foldl copyRecordEntry ([], templates, nextBvCount) recList
+            in
+                (LabelledRecord(List.rev copiedList), resTempls, resBvCount)
+            end
+
+        |   (typ as FlexibleRecordVar{recList as ref recl, fullList as ref full, equality=ref eqv, level=ref lvl}, bvMap) =>
+            let
+                (* Construct a TemplFlexRec but make sure there is only one for each FlexibleRecordVar *)
+                val (flexRec, _) = followRefChainToRef recList
+            in
+                case List.find(fn (fv, _) => fv = flexRec) (!flexRecordMapList) of
+                    SOME(_, index) => (BoundTypeVar("'a", index), templates, nextBvCount)
+                |   NONE =>
+                    let
+                        val equality = followRefChainToEnd eqv
+                        val tvLevel = followRefChainToEnd lvl
+                    in
+                        if (case tvLevel of NotGeneralisable v => v < level | Generalisable => false)
+                        then (typ, templates, nextBvCount)
+                        else
+                        let
+                            val {frozen, ...} = followRefChainToEnd full
+                            val recList = followRefChainToEnd recl
+                            fun copyRecordEntry({name, typeOf}, (fields, templs, bvCount)) =
+                            let
+                                val (copiedTyp, newtempls, newBvCount) = createGeneric((typeOf, bvMap), templs, bvCount)
+                            in
+                                ({name=name, typeOf=copiedTyp} :: fields, newtempls, newBvCount)
+                            end
+                            val (copiedList, resTempls, resBvCount) = List.foldl copyRecordEntry ([], templates, nextBvCount) recList
+                        in
+                            if frozen
+                            then (LabelledRecord(List.rev copiedList), resTempls, resBvCount)
+                            else
+                            let
+                                (* If we're using the narrow context it should have been resolved. *)
+                                val () = if checkOverloadFlex then giveError("Type is an unresolved flexible record") else ()
+                                val newIndex = TVIndex resBvCount
+                                val newTempl =
+                                    TemplFlexRec { equality=equality,
+                                        recList=List.rev copiedList, fullList=fullList}
+                                val () = flexRecordMapList := (flexRec, newIndex) :: ! flexRecordMapList
+                            in
+                                (createNewBoundVar false newIndex, newTempl :: resTempls, resBvCount+1)
+                            end
+                        end
+                    end
+            end
+
+        |   (BadType, _) => (BadType, templates, nextBvCount)
+
+        val (ty, bvMap) = getCanonical instance
+
+        val (newType, newTemplates, _) = createGeneric((ty, bvMap), [], 0)
+        (* Reset the type variable list *)
+        val () = List.app(fn r => r:= ChainEnd NONE) (! createdTypeVars)
+    in
+        (newType, List.rev newTemplates)
+    end (*  end allowGeneralisation *)
+
+    (* See if the type contains non-unifiable i.e. explicit type variables but it's an expansive context. *)
+    fun containsLocalFreeVariables(t, level) =
+    let
+        fun checkFree(TypeVar(TypeVariable{link=ref l, ...}), _) v =
+            (
+                case followRefChainToEnd l of
+                    NONE => v
+                |   SOME(SimpleInstance i) => checkFree (i, fn _ => NONE) v
+                |   SOME(Instance inst) => checkFree inst v
+
+            )
+
+        |   checkFree(BoundTypeVar (_, index), bvMap) v =
+            (
+                case bvMap index of
+                    SOME ty => checkFree(ty, bvMap) v
+                |   NONE => raise Misc.InternalError "containsLocalFreeVariables: boundvar"
+            )
+
+            (* Explicit type variables at outer levels are allowed but not at this level. *)
+        |   checkFree(FreeTypeVar{level=NotGeneralisable fLev, ...}, _) v = v orelse fLev >= level
+        |   checkFree(FreeTypeVar{level=Generalisable, ...}, _) v = v  (* Shouldn't occur *) 
+            
+            (* If this is a type function we mustn't check type variables that aren't actually used. *)
+        |   checkFree(TypeConstruction {args, constr=TypeConstrs{identifier=TypeId{idKind=TypeFn{usedTvs, ...}, ...}, ...}, ...}, bvMap) v =
+                #1 (List.foldl(fn (t, (v, n)) => (if BoolVector.sub(usedTvs, n) then checkFree (t, bvMap) v else v, n+1)) (v, 0) args)
+
+        |   checkFree(TypeConstruction {args, ...}, bvMap) v = (* Then process the arguments. *)
+                List.foldl (fn (t, v) => checkFree (t, bvMap) v) v args
+
+        |   checkFree(FunctionType {arg, result}, bvMap) v = (* Then process the arguments. *)
+                checkFree (arg, bvMap) (checkFree (result, bvMap) v)
+
+        |   checkFree(LabelledRecord recList, bvMap) v = (* Then process the arguments. *)
+                List.foldl (fn ({ typeOf, ... }, v) => checkFree(typeOf, bvMap) v) v recList
+
+        |   checkFree(FlexibleRecordVar{recList=ref recl, ...}, bvMap) v = (* Then process the arguments. *)
+                List.foldl (fn ({ typeOf, ... }, v) => checkFree(typeOf, bvMap) v) v (followRefChainToEnd recl)
+
+        |   checkFree(BadType, _) v = v
+        |   checkFree(OverloadSetVar _, _) v = v
+
+    in
+        checkFree (t, fn _ => NONE) false
+    end
+    
+
+    (* Check for free type variables at the top level.  Added for ML97.  This replaces the
+       test in allowGeneralisation above and is applied to all top-level
+       values including those in structures and functors.  *)
+    fun checkForFreeTypeVariables(valName: string, ty: types, lex: lexan, printAndEqCode) : unit =
+    let
+        (* Generate new names for the type variables. *)
+        val count = ref 0
+        fun genName num =
+            (if num >= 26 then genName (num div 26 - 1) else "")
+            ^ String.str (Char.chr (num mod 26 + Char.ord #"a"));
+
+        fun checkTypes (TypeVar (TypeVariable{level=ref lvl, equality=ref eq, link, ...}), _) () =
+            if (case followRefChainToEnd lvl of Generalisable => false | NotGeneralisable _ => true)
+            then (* The type variable is unbound and it is not generic i.e. it
+                    must have come from an expansive expression. *)
+                let
+                    val name = "_" ^ genName(!count)
+                    val _ = count := !count + 1;
+                    val declLoc = location lex (* Not correct but OK for the moment. *)
+                    val declDescription =
+                        { location = declLoc, name = name, description = "Constructed from a free type variable." }
+                    val tCons =
+                        makeTypeConstructor (name,
+                            makeFreeId(0, Global(printAndEqCode()), followRefChainToEnd eq, declDescription),
+                            [DeclaredAt declLoc]);
+                    val newVal = mkTypeConstruction(name, tCons, [], [])
+                    val (refVal, _) = followRefChainToRef link
+                in
+                    warningMessage(lex, location lex, 
+                        concat["The type of (", valName,
+                            ") contains a free type variable. Setting it to a unique monotype."]);
+                    refVal := ChainEnd(SOME(SimpleInstance newVal))
+                end
+            else ()
+        |  checkTypes _ () = ()
+    in
+        foldType checkTypes (ty, fn _ => NONE) ();
+        ()
+    end
 
     (* See if a type abbreviation or "where type" has the form type t = s or
        type 'a t = 'a s etc and so is simply giving a new name to the type
@@ -3137,7 +2807,7 @@ struct
        (s in this example) is just a simple type name. *)
     fun typeNameRebinding(typeArgs, typeResult): typeId option =
     let
-        fun eqTypeVar(TypeVar ta, tb) = sameTv (ta, tb)
+        fun eqTypeVar(BoundTypeVar(_, i), BoundTypeVar(_, j)) = i = j
         |   eqTypeVar _ = false
     in
         case typeResult of
@@ -3146,249 +2816,91 @@ struct
                 then NONE
                 else
                 (
-                    case tcIdentifier constr of
-                        TypeId{idKind=TypeFn _, ...} => NONE
-                    |   tId => SOME tId
-
+                    case constr of
+                        TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...} => NONE
+                    |   TypeConstrs{identifier, ...} => SOME identifier
                 )
         |   _ => NONE
     end
 
-  (* Returns the number of the entry in the list. Used to find out the
-     location of fields in a labelled record for expressions and pattern
-     matching. Assumes that the label appears in the list somewhere. *)
-     
-  fun entryNumber (label, LabelledType{recList, ...}) =
-    let (* Count up the list. *)
-      fun entry ({name, ...}::l) n =
-        if name = label then n else entry l (n + 1)
-       |  entry [] _ = raise Match
-    in
-      entry recList 0
-    end
-      
-   | entryNumber (label, TypeVar tvar) =
-        entryNumber (label, tvValue tvar)
-      
-   | entryNumber (label, TypeConstruction{constr, ...}) = (* Type alias *)
-        entryNumber (label, tcEquivalent constr)
-      
-   | entryNumber _ =
-        raise Misc.InternalError "entryNumber - not a record"
-
-  (* Size of a labelled record. *)
-
-  fun recordWidth (LabelledType{recList, ...}) =
-        length recList
-      
-   | recordWidth (TypeVar tvar) =
-        recordWidth (tvValue tvar)
-      
-   | recordWidth (TypeConstruction{constr, ...}) = (* Type alias *)
-        recordWidth (tcEquivalent constr)
-      
-   | recordWidth _ =
-        raise Misc.InternalError "entryNumber - not a record"
-
-    fun recordFieldMap f (LabelledType{recList, ...}) = List.map (f o (fn {typeof, ...} => typeof)) recList
-    |   recordFieldMap f (TypeVar tvar) = recordFieldMap f (tvValue tvar)
-    |   recordFieldMap f (TypeConstruction{constr, ...}) = recordFieldMap f (tcEquivalent constr)
-    |   recordFieldMap _ _ = raise Misc.InternalError "entryNumber - not a record"
-
-    (* Unify two type variables which would otherwise be non-unifiable.
-       Used when we have found a local type variable with the same name
-       as a global one. *)
-    fun linkTypeVars (a, b) =
-    let
-        val ta = typesTypeVar (eventual(TypeVar a)) (* Must both be type vars. *)
-        val tb = typesTypeVar (eventual(TypeVar b))
-    in  (* Set the one with the higher level to point to the one with the
-         lower, so that the effective level is the lower. *)
-        if (case (tvLevel ta, tvLevel tb) of
-                (Generalisable, _) => true | (_, Generalisable) => false | (NotGeneralisable l1, NotGeneralisable l2) => l1 > l2)
-        then tvSetValue (ta, TypeVar b)
-        else tvSetValue (tb, TypeVar a)
-    end;
-
-    (* Set its level by setting it to a new type variable. *)
-    fun setTvarLevel (typ, level) =
-    let
-        val tv = typesTypeVar (eventual(TypeVar typ)); (* Must be type var. *)
-    in
-        tvSetValue (tv, mkTypeVar (level, tvEquality tv, true, tvPrintity tv))
-    end;
-
-    (* Construct the least general type from a list of types.  This is used after
-       type checking to try to remove polymorphism from local values.  It takes
-       the list of actual uses of the value, usually a function, and removes
-       any unnecessary polymorphism.  This is particularly the case if the
-       function involves a flexible record, where the unspecified fields are
-       treated as polymorphic, but where the function is actually applied
-       to a records which are monomorphic. *)
-    fun leastGeneral [] = EmptyType (* Never used? *)
-
-    (* Don't use this at the moment - see the comment on TypeVar below.
-       Also the comment on TypeConstruction for local datatypes. *)
-(*    |   leastGeneral [oneType] = oneType *)(* Just one - this is it. *)
-
-    |   leastGeneral(firstType::otherTypes): types =
-    let
-        fun canonical (typ as TypeVar tyVar) =
-            (
-                case tvValue tyVar of
-                    EmptyType => typ
-                |   OverloadSet _ =>
-                    let
-                        val constr = typeConstrFromOverload(typ, false)
-                    in
-                        mkTypeConstruction(tcName constr, constr, [], [])
-                    end
-                |   t => canonical t
-            )
-        |   canonical (typ as TypeConstruction { constr, args, ...}) =
-                if tcIsAbbreviation constr (* Handle type abbreviations directly *)
-                then canonical(makeEquivalent (constr, args))
-                else typ
-        |   canonical typ = typ
-
-        (* Take the head of the each argument list and extract the least general.
-           Then process the tail.  It's an error if each element of the list
-           does not contain the same number of items. *)
-        fun leastArgs ([]::_) = []
-        |   leastArgs (args as _::_) =
-                leastGeneral(List.map hd args) :: leastArgs (List.map tl args)
-        |   leastArgs _ = raise Empty
-
-    in
-        case canonical firstType of
-            (*typ as *)TypeVar _(*tv*) =>
-            let
-                (*fun sameTypeVar(TypeVar tv1) = sameTv(tv, tv1) | sameTypeVar _ = false*)
-            in
-                (* If they are all the same type variable return that otherwise return
-                   a new generalisable type variable.  They may all be equal if we always
-                   apply this function to a value whose type is a polymorphic type in the
-                   function that contains all these uses. *)
-                (* Temporarily, at least, create a new type var in this case.  If we have a polymorphic
-                   function that is only used inside another polymorphic function but isn't declared
-                   inside it, if we use the caller's type variable here the call won't be recognised
-                   as polymorphic. *)
-                (*if List.all sameTypeVar otherTypes then typ else*) mkTypeVar(generalisable, false, false, false)
-            end
-    
-        |   TypeConstruction{ constr, args, name, locations, ...}  =>
-            (
-                (* There is a potential problem if the datatype is local including if it was
-                   constructed in a functor.  Almost always it will have been declared after
-                   the polymorphic function but if it happens not to have been we could set
-                   a polymorphic function to a type that doesn't exist yet.  To avoid this
-                   we don't allow a local datatype here and instead fall back to the
-                   polymorphic case. *)
-                case tcIdentifier constr of
-                    thisConstrId as TypeId{access=Global _, ...} =>
-                    let
-                        val argLength = List.length args
-                        (* This matches if it is an application of the same type constructor. *)
-                        fun getTypeConstrs(TypeConstruction{constr, args, ...}) =
-                                if sameTypeId(thisConstrId, tcIdentifier constr) andalso
-                                        List.length args = argLength
-                                then SOME args else NONE
-                        |   getTypeConstrs _ = NONE
-                        val allArgs = List.mapPartial (getTypeConstrs o canonical) otherTypes
-                    in
-                        if List.length allArgs = List.length otherTypes
-                        then TypeConstruction{constr=constr, name=name, locations=locations,
-                                             args = leastArgs(args :: allArgs)}
-                        else (* At least one of these wasn't the same type constructor. *)
-                            mkTypeVar(generalisable, false, false, false)
-                    end
-                |   _ => mkTypeVar(generalisable, false, false, false)
-            )
-
-        |   FunctionType{ arg, result } =>
-            let
-                fun getFuns(FunctionType{arg, result}) = SOME(arg, result)
-                |   getFuns _ = NONE
-                val argResults = List.mapPartial (getFuns o canonical) otherTypes
-            in
-                if List.length argResults = List.length otherTypes
-                then
-                let
-                    val (args, results) = ListPair.unzip argResults
-                in
-                    FunctionType{arg=leastGeneral(arg::args), result = leastGeneral(result::results)}
-                end
-                else (* At least one of these wasn't a function. *)
-                    mkTypeVar(generalisable, false, false, false)
-            end
-  
-        |   LabelledType (r as {recList=firstRec, fullList}) =>
-            if recordIsFrozen r
-            then
-            let
-                (* This matches if all the field names are the same.  Extract the types. *)
-                fun nameMatch({name=name1: string, ...}, {name=name2, ...}) = name1 = name2
-                fun getRecords(LabelledType{recList, ...}) =
-                        if ListPair.allEq nameMatch (firstRec, recList) 
-                        then SOME(List.map #typeof recList) else NONE
-                |   getRecords _ = NONE
-                val argResults = List.mapPartial (getRecords o canonical) otherTypes
-            in
-                if List.length argResults = List.length otherTypes
-                then
-                let
-                    (* Use the names from the first record (they all are the same) to
-                       build a new record. *)
-                    val argTypes = leastArgs(List.map #typeof firstRec :: argResults)
-                    fun recreateRecord({name, ...}, types) = {name=name, typeof=types}
-                    val newList = ListPair.map recreateRecord(firstRec, argTypes)
-                in
-                    LabelledType{recList=newList, fullList=fullList }
-                end
-                else (* At least one of these wasn't a record. *)
-                    mkTypeVar(generalisable, false, false, false)
-            end
-            else (* At this stage the record should be frozen if the program is
-                    correct but if it isn't we could have a flexible record which
-                    we report elsewhere. *)
-                mkTypeVar(generalisable, false, false, false)
-
-        |   _ => (* May arise if there's been an error. *) mkTypeVar(generalisable, false, false, false)
-    end
-
-    (* Test if this is floating point i.e. the "real" type. We could include
-       abbreviations of real as well but it's probably not worth it. *)
-    datatype floatKind = FloatDouble | FloatSingle
-    
     local
-        val realId = tcIdentifier realConstr and floatId = tcIdentifier floatConstr
-
-        fun isFloatId constr =
-        let
-            val id = tcIdentifier constr
-        in
-            if sameTypeId(id, realId) then SOME FloatDouble
-            else if sameTypeId(id, floatId) then SOME FloatSingle
-            else NONE
-        end
+        (* We have to use the full list; not all fields may be in recList. *)
+        fun getFieldList(LabelledRecord rcrd) = map #name rcrd
+        |   getFieldList(FlexibleRecordVar{fullList=ref full, ...}) = #names(followRefChainToEnd full)
+        |   getFieldList(TypeVar(TypeVariable{link=ref l, ...})) = getFieldList(instanceToType(valOf(followRefChainToEnd l)))
+        |   getFieldList(TypeConstruction{
+                    constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...}, args, ...}) =
+                getFieldList(makeEquivalent(constr, args)) (* Type function *)
+        |   getFieldList _ = raise Misc.InternalError "getFieldList - not a record"
     in
-        fun isFloatingPt(TypeConstruction{args=[], constr, ...}) = isFloatId constr
-        |   isFloatingPt(OverloadSet {typeset, ...}) =
-            (
-                case preferredOverload typeset of
-                    SOME t => isFloatId t (* real only.  float is never preferred. *)
-                |   NONE => NONE
-            )
-        |   isFloatingPt(TypeVar tv) = isFloatingPt (tvValue tv)
-        |   isFloatingPt _ = NONE
+        (* Returns the number of the entry in the list. Used to find out the
+           location of fields in a labelled record for expressions and pattern
+           matching. Assumes that the label appears in the list somewhere. *)
+        fun entryNumber (label, rcrd) = 
+        let
+            val fields = getFieldList rcrd
+
+            fun entry (name :: l) n = if name = label then n else entry l (n + 1)
+            |   entry [] _ = raise Misc.InternalError "entryNumber: label not present"
+        in
+            entry fields 0
+        end
+
+        (* Size of a labelled record. *)
+        and recordWidth rcrd = List.length(getFieldList rcrd)
+        
     end
 
-    fun checkDiscard(t: types, lex: lexan): string option =
+    (* Get the codetree "types".  This is used during code-generation to see if
+       a function arguments or results are a tuple or contain floating-point values. *)
+    local
+        fun isFloatId constr =
+            if isSameTypeIdAs(constr, realConstr) then DoubleFloatType
+            else if isSameTypeIdAs(constr, floatConstr) then SingleFloatType
+            else GeneralType
+    in
+        fun getCodetreeType (LabelledRecord []) = [GeneralType] (* Unit *)
+        |   getCodetreeType (LabelledRecord recList) =
+            let
+                fun getType{typeOf, ...} =
+                    case getCodetreeType typeOf of [single] => single | _ => GeneralType
+            in
+                List.map getType recList
+            end
+
+        |   getCodetreeType (TypeVar(TypeVariable{link=ref l, ...})) =
+                (case followRefChainToEnd l of NONE => [GeneralType] | SOME t => getCodetreeType(reduceToType t))
+
+        |   getCodetreeType (TypeConstruction{
+                    constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...}, args, ...}) =
+                getCodetreeType (makeEquivalent(constr, args))
+
+        |   getCodetreeType (TypeConstruction{constr, args=[], ...}) = [isFloatId constr]
+
+        |   getCodetreeType(OverloadSetVar(ref typeset)) =
+            (
+                case followRefChainToEnd typeset of
+                    [single] =>  [isFloatId single]
+                |   multiple =>
+                    case preferredOverload multiple of
+                        SOME t => [isFloatId t] (* real only.  float is never preferred. *)
+                    |   NONE => [GeneralType]
+            )
+
+        |   getCodetreeType _ = [GeneralType]
+        
+        val getCodetreeType = getCodetreeType o instanceToType
+    end
+
+    (* In a bracketed sequence of expressions e.g. (a; b; c) the earlier expressions are evaluated for
+       their side-effects but the results are discarded.  There is an optional check on the types of
+       the values being discarded. *)
+    fun checkDiscard(t: instanceType, lex: lexan): string option =
     let
         open DEBUG
         val checkLevel = getParameter reportDiscardedValuesTag (debugParams lex)
 
-        fun isUnit(LabelledType{recList=[], ...}) = true (* Unit is actually an empty record *)
+        fun isUnit(LabelledRecord []) = true (* Unit is actually an empty record *)
         |   isUnit(TypeConstruction{
                     constr as TypeConstrs{identifier=TypeId{idKind=TypeFn _, ...}, ...},
                     args, ...}) =
@@ -3404,10 +2916,21 @@ struct
         |   isAFunction _ = false
     in
         case checkLevel of
-            1 => if isAFunction (eventual t) then SOME "A function value is being discarded." else NONE
-        |   2 => if isUnit (eventual t) then NONE else SOME "A non unit value is being discarded."
+            1 => if isAFunction (eventual(instanceToType t)) then SOME "A function value is being discarded." else NONE
+        |   2 => if isUnit (eventual(instanceToType t)) then NONE else SOME "A non unit value is being discarded."
         |   _ => NONE
     end
+
+    (* Returns true if this is the function that returns ref.  It is used when a constructor
+       application has been found.  In all other cases this would be non-expansive but if the
+       constructor is "ref" it has to be treated as expansive. *)
+    fun isRefFunction t =
+        case eventual t of
+            FunctionType{result, ...} =>
+                (case eventual result of
+                    TypeConstruction{constr, ...} => isSameTypeIdAs (constr, refConstr)
+                |   _ => false)
+        |   _ => false
 
     structure Sharing =
     struct
@@ -3417,16 +2940,19 @@ struct
         and  structVals = structVals
         and  typeConstrs= typeConstrs
         and  typeConstrSet=typeConstrSet
-        and  typeParsetree = typeParsetree
         and  locationProp = locationProp
         and  pretty     = pretty
         and  lexan      = lexan
         and  ptProperties = ptProperties
-        and  typeVarForm = typeVarForm
+        and  typeVar    = typeVar
         and  codetree   = codetree
         and  matchResult = matchResult
         and  generalMatch = generalMatch
         and  tvLevel = tvLevel
         and  valAccess  = valAccess
+        and  tvIndex = tvIndex
+        and  typeVarTemplate = typeVarTemplate
+        and  argumentType = argumentType
+        and  instanceType = instanceType
     end
-end (* TYPETREE *);
+end;

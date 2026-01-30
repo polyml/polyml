@@ -115,7 +115,7 @@ struct
   and whereTypeStruct =
       {
         sigExp: sigs,
-        typeVars: typeVarForm list,
+        typeVars: parseTypeVar list,
         typeName: string,
         realisation: typeParsetree,
         line: location
@@ -408,11 +408,10 @@ struct
     end
 
     fun tcName       (TypeConstrs {name,...})       = name
-    fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
     fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
     fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
-    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{tyVars, ...},...}, ...}) = length tyVars
+    fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
     |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
 
@@ -453,7 +452,7 @@ struct
     (* Formal paramater to a functor - either value or exception. *)
     fun mkFormal (name : string, class, typ, addr, locations) =
         Value{class=class, name=name, typeOf=typ, access=Formal addr, locations=locations,
-              references = NONE, instanceTypes=NONE}
+              references = NONE}
 
       (* Get the value from a signature-returning expression
          (either the name of a signature or sig ... end.
@@ -803,8 +802,9 @@ struct
             makeSignature(name, tab, !idCount, locations, mapIds, [])
         end
 
-        and signatureWhereType(sigExp, typeVars, typeName, realisationType, line, Env globalEnv, structPath) =
+        and signatureWhereType(sigExp, parseTypeVars, typeName, realisationType, line, Env globalEnv, structPath) =
         let
+            val typeVars = map getBoundTypeVar parseTypeVars
             (* We construct the signature into the result signature.  When we apply the
                "where" we need to look up the types (and structures) only within the
                signature constrained by the "where" and not in the surrounding signature.
@@ -862,7 +862,7 @@ struct
                             PrettyBreak(1, 0),
                             PrettyString reason1,
                             PrettyBreak(1, 0),
-                            display(realisation, 1000, typeEnv),
+                            display(SimpleInstance realisation, 1000, typeEnv),
                             PrettyBreak(0, 0),
                             PrettyString reason2
                         ]))
@@ -937,7 +937,7 @@ struct
                                         else
                                         let
                                             val typeId =
-                                                makeTypeFunction(typeVars, realisation,
+                                                makeTypeFunction(List.length typeVars, realisation,
                                                     { location = line, description = "", name = typeName })
                                         in
                                             StretchArray.update(mapArray, offset-initTypeId, FreeSlot typeId)
@@ -1008,9 +1008,7 @@ struct
 
             (* Process the entries in the signature and allocate an address
                to each. *)
-            fun processSig (signat: specs, offset : int, lno : LEX.location) : int =
-              case signat of
-                StructureSig (structList : structSigBind list, _) =>
+            fun processSig (StructureSig (structList : structSigBind list, _), offset, lno) : int =
                 let
                   (* Each element in the list should be a structure binding. *)
                   fun pStruct [] offset = offset
@@ -1052,11 +1050,11 @@ struct
                   pStruct structList offset
                 end
                 
-              | ValSig {name=(name, nameLoc), typeof, line, ...} =>
+           |    processSig (signat as ValSig {name=(name, nameLoc), typeof, line, ...}, offset, _) =
                 let
-                  val errorFn = giveSpecError (signat, line, lex);
+                    val errorFn = giveSpecError (signat, line, lex)
                 
-                  fun lookup(s, locn) =
+                    fun lookup(s, locn) =
                     lookupTyp
                       ({
                         lookupType   = Misc.lookupDefault (#lookupType structEnv) (#lookupType globalEnv),
@@ -1064,25 +1062,27 @@ struct
                        },
                      s,
                      giveSpecError (signat, locn, lex));
-                  (* Check for rebinding of built-ins.  "it" is allowed here. *)
-                  val () = if name = "true" orelse name = "false" orelse name = "nil"
+                    (* Check for rebinding of built-ins.  "it" is allowed here. *)
+                    val () = if name = "true" orelse name = "false" orelse name = "nil"
                             orelse name = "::" orelse name = "ref"
                         then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
                         else ();
-                  val typeof = assignTypes (typeof, lookup, lex)
+                    val typeof = assignTypes (typeof, lookup, lex)
                     val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                    
+                    (* Turn free variables into bound variables.  *)
+                    val valType = allowGeneralisation(SimpleInstance typeof, 0, false, fn _ => ())
 
                 in  (* If the type is not found give an error. *)
-                  (* The type is copied before being entered in the environment.
-                     This isn't logically necessary but has the effect of removing
+                    (* The type is copied before being entered in the environment.
+                        This isn't logically necessary but has the effect of removing
                      ref we put in for type constructions. *)
-                  #enterVal structEnv (name,
-                    mkFormal (name, ValBound,
-                        copyType (typeof, fn x => x, fn x => x), offset, locations));
-                  (offset + 1)
+                    #enterVal structEnv (name,
+                        mkFormal (name, ValBound, ValueType valType, offset, locations));
+                    (offset + 1)
                 end
                
-              | ExSig {name=(name, nameLoc), typeof, line, ...} =>
+           |    processSig (signat as ExSig {name=(name, nameLoc), typeof, line, ...}, offset, _) =
                 let
                   val errorFn = giveSpecError (signat, line, lex);
                 
@@ -1095,22 +1095,22 @@ struct
                      s,
                      errorFn);
 
-                    val exType =
+                    val (exType, nullary) =
                         case typeof of
-                            NONE => exnType
-                        |   SOME typeof => mkFunctionType (assignTypes (typeof, lookup, lex), exnType)
+                            NONE => (exnType, true)
+                        |   SOME typeof => (mkFunctionType (assignTypes (typeof, lookup, lex), exnType), false)
                     val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 in  (* If the type is not found give an error. *)
                   (* Check for rebinding of built-ins. "it" is not allowed. *)
                     if name = "true" orelse name = "false" orelse name = "nil"
-                  orelse name = "::" orelse name = "ref" orelse name = "it"
-                  then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
-                  else ();
-                  #enterVal structEnv (name, mkFormal (name, Exception, exType, offset, locations));
-                  (offset + 1)
+                        orelse name = "::" orelse name = "ref" orelse name = "it"
+                    then errorFn("Specifying \"" ^ name ^ "\" is illegal.")
+                    else ();
+                    #enterVal structEnv (name, mkFormal (name, Exception{nullary=nullary}, ValueType(exType, []), offset, locations));
+                    (offset + 1)
                 end
                
-              | IncludeSig (structList : sigs list, _) =>
+           |    processSig (IncludeSig (structList : sigs list, _), offset, lno) =
                 let
                     (* include sigid ... sigid or include sigexp.  For
                        simplicity we handle the slightly more general case
@@ -1155,23 +1155,14 @@ struct
                                any sharing *)
                             fun copyConstructor(Value { name, typeOf, access, class, locations, ... }) =
                                 Value{name=name, typeOf = typeOf, access=newAccess access,
-                                      class=class, locations=locations, references=NONE,
-                                      instanceTypes=NONE}
+                                      class=class, locations=locations, references=NONE }
                             val newType =
                                 case tcConstructors of
                                     [] => tySet (* Not a datatype. *)
                                 |   constrs =>
                                     let
-                                        fun makeTypeConstructor (name, typeVars, uid, locations) =
-                                            TypeConstrs
-                                            {
-                                                name       = name,
-                                                typeVars   = typeVars,
-                                                identifier = uid,
-                                                locations = locations
-                                            }
                                         val newTy =
-                                            makeTypeConstructor(tcName ty, tcTypeVars ty, tcIdentifier ty, tcLocations ty)
+                                            TypeConstrs { name = tcName ty,  identifier = tcIdentifier ty, locations = tcLocations ty }
                                     in
                                         TypeConstrSet(newTy, List.map copyConstructor constrs)
                                     end;
@@ -1187,8 +1178,7 @@ struct
                         and enterVal(dName, Value { name, typeOf, access, class, locations, ... }) =
                             #enterVal structEnv (dName,
                                 Value{name=name, typeOf = typeOf, access=newAccess access,
-                                      class=class, locations=locations, references=NONE,
-                                      instanceTypes=NONE})
+                                      class=class, locations=locations, references=NONE })
 
                         val tsvEnv =
                             { enterType = enterType, enterStruct = enterStruct, enterVal = enterVal }
@@ -1200,7 +1190,7 @@ struct
                     List.foldl includeSigExp offset structList
                 end
 
-              | Sharing (share : shareConstraint) =>
+           |    processSig (Sharing (share : shareConstraint), offset, _) =
                   (* Sharing constraint. *)
                   let
                      (* In ML90 it was possible to share with any identifier
@@ -1212,7 +1202,7 @@ struct
                      offset (* No entry *)
                   end
                 
-              | CoreType {dec, ...} =>
+           |    processSig (CoreType {dec, ...}, offset, _) =
               let (* datatype or type binding(s) *)
                 (* This pass puts the data constructors into the environment. *)
                 val addrs = ref offset
@@ -1223,7 +1213,7 @@ struct
                    declaration or from datatype replication. *)
                 fun convertValueConstr(Value{class=class, typeOf, locations, name, ...}) =
                     Value{class=class, typeOf=typeOf, access=Formal(!addrs before (addrs := !addrs+1)), name=name,
-                        locations=locations, references=NONE, instanceTypes=NONE}
+                        locations=locations, references=NONE}
                     
                 fun enterVal(name, v) = (#enterVal structEnv)(name, convertValueConstr v)
 
@@ -1252,11 +1242,11 @@ struct
                   allStructNames = #allStructNames structEnv
                  };
 
-                fun makeId (eq, isdt, (args, EmptyType), loc) =
+                fun makeId (eq, isdt, (args, NONE), loc) =
                     makeVariableId(length args, eq, isdt, true, loc, structPath)
 
-                |   makeId (_, _, (typeVars, decType), { location, name, description }) =
-                        makeTypeFunction(typeVars, decType, { location = location, name = structPath ^ name, description = description })
+                |   makeId (_, _, (typeVars, SOME decType), { location, name, description }) =
+                        makeTypeFunction(List.length typeVars, decType, { location = location, name = structPath ^ name, description = description })
 
                 (* We need a map to look up types.  This is only used in one place:
                    if the item we're processing is a datatype then we need to look
@@ -1275,7 +1265,7 @@ struct
                     |   VariableSlot { boundId, ...} => equalityForId boundId
                     |   _ => raise Misc.InternalError "internalMap: Not bound or Free"
 
-                val _ : types = pass2 (dec, makeId, Env newEnv, lex, findEquality);
+                val _ = pass2 (dec, makeId, Env newEnv, lex, findEquality);
                 (* Replace the constructor list for the datatype with a new set.
                    We need to have separate addresses for the constructors in the
                    datatype environment from those in the value environment.  This
@@ -1350,7 +1340,7 @@ struct
                         (newId :: distinctIds, newId :: mappedIds)
                     end
 
-                |   FreeSlot (TypeId{idKind=TypeFn{tyVars=args, resType=equiv, ...}, description, ...}) =>
+                |   FreeSlot (TypeId{idKind=TypeFn{arity, resType=equiv, ...}, description, ...}) =>
                     let
                         (* Generally, IDs in a FreeSlot will be either Bound or Free but
                            they could be TypeFunctions as a result of a "where type" and
@@ -1366,11 +1356,10 @@ struct
                             )
                         |   copyId _ = NONE
                                     
-                        val copiedEquiv =
-                            copyType(equiv, fn x => x,
-                                fn tcon => copyTypeConstr (tcon, copyId, fn x => x, fn s => s))
+                        val (copiedEquiv, haveCopied) =
+                            copyType(equiv, fn tcon => copyTypeConstr (tcon, copyId, fn s => s))
                         (* For the moment always use a Free ID here. *)
-                        val copiedId = makeTypeFunction(args, copiedEquiv, description)
+                        val copiedId = makeTypeFunction(arity, copiedEquiv, description)
                         (* Update the array with this copied version.  If other subsequent type functions
                            use this entry they will then pick up the copied version.  Because "where type"
                            constraints can only refer to earlier types we have to process this from earlier
@@ -1423,7 +1412,7 @@ struct
         type structSigBind  = structSigBind
         type parsetree      = parsetree
         type typeParsetree  = typeParsetree
-        type typeVarForm    = typeVarForm
+        type parseTypeVar   = parseTypeVar
         type pretty         = pretty
         type ptProperties   = ptProperties
         type env            = env

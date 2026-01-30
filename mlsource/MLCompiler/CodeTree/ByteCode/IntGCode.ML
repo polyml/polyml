@@ -106,7 +106,7 @@ struct
                     case Array.sub (decVec, locn) of
                         StackAddr n => pushLocalStackValue (~ n)
                     |   _ => (* Should be on the stack, not a function. *)
-                        raise InternalError "locaddr: bad stack address"
+                        raise Misc.InternalError "locaddr: bad stack address"
             )
 
         |   locaddr(BICLoadClosure locn) = (* closure-pointer relative *)
@@ -132,7 +132,7 @@ struct
         fun genMLAddress({base, index, offset}, scale) =
         (
             gencde (base, ToStack, NotEnd, loopAddr);
-            offset mod scale = 0 orelse raise InternalError "genMLAddress";
+            offset mod scale = 0 orelse raise Misc.InternalError "genMLAddress";
             case (index, offset div scale) of
                 (NONE, soffset) => (pushConst (toMachineWord soffset, cvec); incsp())
             |   (SOME indexVal, 0) => gencde (indexVal, ToStack, NotEnd, loopAddr)
@@ -251,7 +251,7 @@ struct
                 val (startLoop, startSp, argIndexList) =
                     case loopAddr of
                         SOME l => l
-                    |   NONE => raise InternalError "No BeginLoop for Loop instr"
+                    |   NONE => raise Misc.InternalError "No BeginLoop for Loop instr"
                 (* Evaluate the arguments.  First push them to the stack because evaluating
                    an argument may depend on the current value of others.  Only when we've
                    evaluated all of them can we overwrite the original argument positions. *)
@@ -266,7 +266,7 @@ struct
                         decsp(); (* The argument has now been popped. *)
                         argOffset
                     end
-                  | loadArgs _ = raise InternalError "loadArgs: Mismatched arguments";
+                  | loadArgs _ = raise Misc.InternalError "loadArgs: Mismatched arguments";
 
                 val _: int = loadArgs(List.map #1 argList, argIndexList)
             in
@@ -530,7 +530,7 @@ struct
                 |   WordComparison{test=TestLessEqual, isSigned=false} => genOpcode(opcode_lessEqUnsigned, cvec)
                 |   WordComparison{test=TestGreater, isSigned=false} => genOpcode(opcode_greaterUnsigned, cvec)
                 |   WordComparison{test=TestGreaterEqual, isSigned=false} => genOpcode(opcode_greaterEqUnsigned, cvec)
-                |   WordComparison{test=TestUnordered, ...} => raise InternalError "WordComparison: TestUnordered"
+                |   WordComparison{test=TestUnordered, ...} => raise Misc.InternalError "WordComparison: TestUnordered"
 
                 |   PointerEq => genOpcode(opcode_equalWord, cvec)
 
@@ -539,15 +539,15 @@ struct
                 |   FixedPrecisionArith ArithMult => genOpcode(opcode_fixedMult, cvec)
                 |   FixedPrecisionArith ArithQuot => genOpcode(opcode_fixedQuot, cvec)
                 |   FixedPrecisionArith ArithRem => genOpcode(opcode_fixedRem, cvec)
-                |   FixedPrecisionArith ArithDiv => raise InternalError "TODO: FixedPrecisionArith ArithDiv"
-                |   FixedPrecisionArith ArithMod => raise InternalError "TODO: FixedPrecisionArith ArithMod"
+                |   FixedPrecisionArith ArithDiv => raise Misc.InternalError "TODO: FixedPrecisionArith ArithDiv"
+                |   FixedPrecisionArith ArithMod => raise Misc.InternalError "TODO: FixedPrecisionArith ArithMod"
 
                 |   WordArith ArithAdd => genOpcode(opcode_wordAdd, cvec)
                 |   WordArith ArithSub => genOpcode(opcode_wordSub, cvec)
                 |   WordArith ArithMult => genOpcode(opcode_wordMult, cvec)
                 |   WordArith ArithDiv => genOpcode(opcode_wordDiv, cvec)
                 |   WordArith ArithMod => genOpcode(opcode_wordMod, cvec)
-                |   WordArith _ => raise InternalError "WordArith - unimplemented instruction"
+                |   WordArith _ => raise Misc.InternalError "WordArith - unimplemented instruction"
                 
                 |   WordLogical LogicalAnd => genOpcode(opcode_wordAnd, cvec)
                 |   WordLogical LogicalOr => genOpcode(opcode_wordOr, cvec)
@@ -564,14 +564,14 @@ struct
                 |   LargeWordComparison TestLessEqual => genOpcode(opcode_lgWordLessEq, cvec)
                 |   LargeWordComparison TestGreater => genOpcode(opcode_lgWordGreater, cvec)
                 |   LargeWordComparison TestGreaterEqual => genOpcode(opcode_lgWordGreaterEq, cvec)
-                |   LargeWordComparison TestUnordered => raise InternalError "LargeWordComparison: TestUnordered"
+                |   LargeWordComparison TestUnordered => raise Misc.InternalError "LargeWordComparison: TestUnordered"
                 
                 |   LargeWordArith ArithAdd => genOpcode(opcode_lgWordAdd, cvec)
                 |   LargeWordArith ArithSub => genOpcode(opcode_lgWordSub, cvec)
                 |   LargeWordArith ArithMult => genOpcode(opcode_lgWordMult, cvec)
                 |   LargeWordArith ArithDiv => genOpcode(opcode_lgWordDiv, cvec)
                 |   LargeWordArith ArithMod => genOpcode(opcode_lgWordMod, cvec)
-                |   LargeWordArith _ => raise InternalError "LargeWordArith - unimplemented instruction"
+                |   LargeWordArith _ => raise Misc.InternalError "LargeWordArith - unimplemented instruction"
 
                 |   LargeWordLogical LogicalAnd => genOpcode(opcode_lgWordAnd, cvec)
                 |   LargeWordLogical LogicalOr => genOpcode(opcode_lgWordOr, cvec)
@@ -604,10 +604,12 @@ struct
                 |   RealArith (ArithMult, PrecSingle) => genOpcode(opcode_floatMult, cvec)
                 |   RealArith (ArithDiv, PrecSingle) => genOpcode(opcode_floatDiv, cvec)
 
-                |   RealArith _ => raise InternalError "RealArith - unimplemented instruction"
+                |   RealArith _ => raise Misc.InternalError "RealArith - unimplemented instruction"
                 
                 |   FreeCStack => genOpcode(opcode_freeCSpace, cvec)
 
+                |   GeneralEquality => raise Misc.InternalError "gencde: GeneralEquality"
+                    (* Should have been removed at a higher level. *)
                  ;
                 decsp() (* Removes one item from the stack. *)
             end
@@ -645,7 +647,7 @@ struct
                    The offset is a byte count so has to be divided by the word size but
                    it should always be an exact multiple. *)
                 gencde (base, ToStack, NotEnd, loopAddr);
-                offset mod Word.toInt wordSize = 0 orelse raise InternalError "gencde: BICLoadOperation - not word multiple";
+                offset mod Word.toInt wordSize = 0 orelse raise Misc.InternalError "gencde: BICLoadOperation - not word multiple";
                 genIndirect (offset div Word.toInt wordSize, cvec)
             )
 
@@ -860,7 +862,7 @@ struct
                     ArithAdd  => genOpcode(opcode_arbAdd, cvec)
                 |   ArithSub  => genOpcode(opcode_arbSubtract, cvec)
                 |   ArithMult => genOpcode(opcode_arbMultiply, cvec)
-                |   _ => raise InternalError "Unknown arbitrary precision operation";
+                |   _ => raise Misc.InternalError "Unknown arbitrary precision operation";
                 decsp() (* Removes one item from the stack. *)
             end
 
@@ -893,7 +895,7 @@ struct
                     if adjustment = 0
                     then ()
                     else if adjustment < ~1
-                    then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
+                    then raise Misc.InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
                     (* Hack for declarations that should push values, but don't *)
                     else if adjustment = ~1
                     then pushConst (DummyValue, cvec)
@@ -910,7 +912,7 @@ struct
                     if adjustment = 0
                     then ()
                     else if adjustment < 0
-                    then raise InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
+                    then raise Misc.InternalError ("gencde: bad adjustment " ^ Int.toString adjustment)
                     else resetStack (adjustment, false, cvec)
             in
                 realstackptr := oldsp
@@ -1000,7 +1002,7 @@ struct
            Convert this into a series of tests. *)
         fun genTest(BICConstnt(w, _), jumpOn, targetLabel) =
             let
-                val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise InternalError "genTest"
+                val cVal = case toShort w of 0w0 => false | 0w1 => true | _ => raise Misc.InternalError "genTest"
             in
                 if cVal = jumpOn
                 then putBranchInstruction (Jump, targetLabel, cvec)

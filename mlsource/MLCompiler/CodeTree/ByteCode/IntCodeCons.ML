@@ -762,7 +762,7 @@ struct
             else if value < 0w256 then 2 else 3
     |   codeSize (IndexedCase{labels, size=ref Size32, ...}) = 4 + List.length labels * 4 
     |   codeSize (IndexedCase{labels, size=ref Size16, ...}) = 3 + List.length labels * 2 
-    |   codeSize (IndexedCase{labels=_, size=ref Size8, ...}) = raise InternalError "codeSize"
+    |   codeSize (IndexedCase{labels=_, size=ref Size8, ...}) = raise Misc.InternalError "codeSize"
     |   codeSize (LoadLocal w) = if w <= 0w15 then 1 else 2
     |   codeSize (IndirectLocal{indirect=0w0, localAddr=0w0}) = 1
     |   codeSize (IndirectLocal{indirect=0w0, ...}) = 2
@@ -941,7 +941,7 @@ struct
         in
             if nextSize < lastSize then setLabAndSize(ops, nextSize)
             else if nextSize = lastSize then lastSize
-            else raise InternalError "setLabAndSize - size increased"
+            else raise Misc.InternalError "setLabAndSize - size increased"
         end
     in
         setLabAndSize(ops, setLabels(ops, 0w0))
@@ -1000,9 +1000,9 @@ struct
                 if dest <= ic
                 then (* Jump back. *)
                 let
-                    val _ = jumpType = JumpBack orelse raise InternalError "genByteCode - back jump"
+                    val _ = jumpType = JumpBack orelse raise Misc.InternalError "genByteCode - back jump"
                     val diff = ic - dest
-                    val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+                    val _ = diff < 0wx10000 orelse raise Misc.InternalError "genByteCode - jump range"
                 in
                     genByte opcode_jumpBack16;
                     genByte(wordToWord8 diff);
@@ -1016,9 +1016,9 @@ struct
                         |   JumpFalse => opcode_jump16False
                         |   JumpTrue => opcode_jump16True
                         |   Jump => opcode_jump16
-                        |   JumpBack => raise InternalError "genByteCode: JumpBack goes forward"
+                        |   JumpBack => raise Misc.InternalError "genByteCode: JumpBack goes forward"
                     val diff = dest - (ic + 0w3)
-                    val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - jump range"
+                    val _ = diff < 0wx10000 orelse raise Misc.InternalError "genByteCode - jump range"
                 in
                     genByte opc;
                     genByte(wordToWord8 diff);
@@ -1033,9 +1033,9 @@ struct
                 if dest <= ic
                 then (* Jump back. *)
                 let
-                    val _ = jumpType = JumpBack orelse raise InternalError "genByteCode - back jump"
+                    val _ = jumpType = JumpBack orelse raise Misc.InternalError "genByteCode - back jump"
                     val diff = ic - dest
-                    val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+                    val _ = diff < 0wx100 orelse raise Misc.InternalError "genByteCode - jump range"
                 in
                     genByte opcode_jumpBack8;
                     genByte(wordToWord8 diff)
@@ -1048,9 +1048,9 @@ struct
                         |   JumpFalse => opcode_jumpFalse
                         |   JumpTrue => opcode_jumpTrue
                         |   Jump => opcode_jump
-                        |   JumpBack => raise InternalError "genByteCode: JumpBack goes forward"
+                        |   JumpBack => raise Misc.InternalError "genByteCode: JumpBack goes forward"
                     val diff = dest - (ic + 0w2)
-                    val _ = diff < 0wx100 orelse raise InternalError "genByteCode - jump range"
+                    val _ = diff < 0wx100 orelse raise Misc.InternalError "genByteCode - jump range"
                 in
                     genByte opc;
                     genByte(wordToWord8 diff)
@@ -1083,7 +1083,7 @@ struct
         |   genByteCode(PushConstant{ constNum, size=ref Size16, isCall, ... }, ic) =
             let
                 val offset = startOfConstants - (ic + 0w4)
-                val _ = offset < 0wx10000 orelse raise InternalError "genByteCode - constant range"
+                val _ = offset < 0wx10000 orelse raise Misc.InternalError "genByteCode - constant range"
             in
                 genByte(if isCall then opcode_callConstAddr16_8  else opcode_constAddr16_8);
                 genByte(wordToWord8 offset);
@@ -1096,14 +1096,14 @@ struct
             then
             let
                 val offset = startOfConstants - (ic + 0w2)
-                val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
+                val _ = offset < 0wx100 orelse raise Misc.InternalError "genByteCode - constant range"
                 val opCode =
                     case (isCall, constNum) of
                         (false, 0) => opcode_constAddr8_0
                     |   (false, 1) => opcode_constAddr8_1
                     |   (true,  0) => opcode_callConstAddr8_0
                     |   (true,  1) => opcode_callConstAddr8_1
-                    |   _ => raise InternalError "genByteCode: constAddr"
+                    |   _ => raise Misc.InternalError "genByteCode: constAddr"
             in
                 genByte opCode;
                 genByte(wordToWord8 offset)
@@ -1111,7 +1111,7 @@ struct
             else
             let
                 val offset = startOfConstants - (ic + 0w3)
-                val _ = offset < 0wx100 orelse raise InternalError "genByteCode - constant range"
+                val _ = offset < 0wx100 orelse raise Misc.InternalError "genByteCode - constant range"
             in
                 genByte(if isCall then opcode_callConstAddr8_8 else opcode_constAddr8_8);
                 genByte(wordToWord8 offset);
@@ -1141,7 +1141,7 @@ struct
                 let
                     val dest = !(hd labs)
                     val diff = dest - startOffset
-                    val _ = dest > startOffset orelse raise InternalError "genByteCode - indexed case"
+                    val _ = dest > startOffset orelse raise Misc.InternalError "genByteCode - indexed case"
                 in
                     genByte(wordToWord8 diff);
                     genByte(wordToWord8(diff >> 0w8));
@@ -1164,8 +1164,8 @@ struct
                 let
                     val dest = !(hd labs)
                     val diff = dest - startOffset
-                    val _ = dest > startOffset orelse raise InternalError "genByteCode - indexed case"
-                    val _ = diff < 0wx10000 orelse raise InternalError "genByteCode - indexed case"
+                    val _ = dest > startOffset orelse raise Misc.InternalError "genByteCode - indexed case"
+                    val _ = diff < 0wx10000 orelse raise Misc.InternalError "genByteCode - indexed case"
                 in
                     genByte(wordToWord8 diff);
                     genByte(wordToWord8(diff >> 0w8))
@@ -1174,7 +1174,7 @@ struct
                 List.app putLabel labels
             end
         
-        |   genByteCode(IndexedCase{size=ref Size8, ...}, _) = raise InternalError "genByteCode - IndexedCase byte"
+        |   genByteCode(IndexedCase{size=ref Size8, ...}, _) = raise Misc.InternalError "genByteCode - IndexedCase byte"
         
         |   genByteCode(LoadLocal 0w0, _) = genByte opcode_local_0
         |   genByteCode(LoadLocal 0w1, _) = genByte opcode_local_1
@@ -1363,7 +1363,7 @@ struct
     |   genEnterInt(b, Code { enterIntMode = 2 (* X86_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
     |   genEnterInt(b, Code { enterIntMode = 3 (* X86_32_64 *), ...}) = [SimpleCode[0wxff, 0wx55, 0wx48, b]]
     |   genEnterInt(b, Code { enterIntMode = 4 (* ARM_64 *), ...}) = [EnterIntArm64 b]
-    |   genEnterInt _ = raise InternalError "genEnterInt: unknown architecture value"
+    |   genEnterInt _ = raise Misc.InternalError "genEnterInt: unknown architecture value"
 
     (* Adds the constants onto the code, and copies the code into a new segment *)
     fun copyCode {code as
@@ -1471,15 +1471,15 @@ struct
         and genOpcByte(opc, arg1, cvec) =
             if 0 <= arg1 andalso arg1 < 256
             then addItemToList(SimpleCode [opc, Word8.fromInt arg1], cvec)
-            else raise InternalError "genOpcByte"
+            else raise Misc.InternalError "genOpcByte"
         and genExtOpcByte(opc, arg1, cvec) = 
             if 0 <= arg1 andalso arg1 < 256
             then addItemToList(SimpleCode [opcode_escape, opc, Word8.fromInt arg1], cvec)
-            else raise InternalError "genExtOpcByte"
+            else raise Misc.InternalError "genExtOpcByte"
         and genExtOpcWord(opc, arg1, cvec) =
             if 0 <= arg1 andalso arg1 < 65536
             then addItemToList(SimpleCode[opcode_escape, opc, Word8.fromInt arg1, Word8.fromInt (arg1 div 256)], cvec)
-            else raise InternalError "genExtOpcWord"
+            else raise Misc.InternalError "genExtOpcWord"
         
         open IEEEReal
         
@@ -1499,7 +1499,7 @@ struct
         |   genRTSCallFast(3, cvec) = genOpc (opcode_callFastRTS3, cvec)
         |   genRTSCallFast(4, cvec) = genOpc (opcode_callFastRTS4, cvec)
         |   genRTSCallFast(5, cvec) = genOpc (opcode_callFastRTS5, cvec)
-        |   genRTSCallFast(_, _) = raise InternalError "genRTSFastCall"
+        |   genRTSCallFast(_, _) = raise Misc.InternalError "genRTSFastCall"
 
         fun genContainer (size, cvec) =
             if size < 256
@@ -1525,7 +1525,7 @@ struct
                 addItemToList(SimpleCode[opcode_resetR_3], cvec)
 
         |   resetStack(offset, true, cvec) =
-            if offset < 0 then raise InternalError "resetStack"
+            if offset < 0 then raise Misc.InternalError "resetStack"
             else if offset > 255
             then genExtOpcWord(ext_opcode_resetR_w, offset, cvec)
             else genOpcByte(opcode_resetRB, offset, cvec)
@@ -1536,7 +1536,7 @@ struct
                 addItemToList(SimpleCode[opcode_reset_2], cvec)
         
         |   resetStack(offset, false, cvec) =
-            if offset < 0 then raise InternalError "resetStack"
+            if offset < 0 then raise Misc.InternalError "resetStack"
             else if offset > 255
             then genExtOpcWord(ext_opcode_resetW, offset, cvec)
             else genOpcByte(opcode_resetB, offset, cvec)

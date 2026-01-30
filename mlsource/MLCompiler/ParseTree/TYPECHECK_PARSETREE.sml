@@ -71,23 +71,11 @@ sig
     end
 end
 
-structure PRINTTABLE :
-sig
-    type typeConstrs
-    type codetree
-
-    val getOverloads: string -> (typeConstrs * codetree) list
-
-    structure Sharing:
-    sig
-        type codetree = codetree
-        and  typeConstrs = typeConstrs
-    end
-end;
+structure DEBUG: DEBUG
 
 sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
        = VALUEOPS.Sharing = UTILITIES.Sharing = PRETTY.Sharing
-       = CODETREE.Sharing = PRINTTABLE.Sharing = DATATYPEREP.Sharing
+       = CODETREE.Sharing = DATATYPEREP.Sharing
        = BASEPARSETREE.Sharing = PRINTTREE.Sharing = EXPORTTREE.Sharing
 
 ): TypeCheckParsetreeSig =
@@ -129,15 +117,99 @@ struct
     open VALUEOPS
     open UTILITIES
     open PRETTY
-    open PRINTTABLE
     open DATATYPEREP
   
     open BASEPARSETREE
     open PRINTTREE
     open EXPORTTREE
-  
-    val emptyType            = EmptyType
-    val badType              = BadType
+
+
+    val badInstance = SimpleInstance BadType
+    and boolInstance = SimpleInstance boolType
+    and boolStarBool = SimpleInstance(mkProductType[boolType, boolType])
+    and unitInstance = SimpleInstance unitType
+    (* Associates type constructors from the environment with type identifiers
+       (NOT type variables) *)
+    fun assignTypes (tp : typeParsetree,  lookupType : string * location -> typeConstrSet, lex : lexan) =
+    let
+
+        fun tcArity(TypeConstrs {identifier=TypeId{idKind=TypeFn{arity, ...},...}, ...}) = arity
+        |   tcArity(TypeConstrs {identifier=TypeId{idKind=Bound{arity, ...},...}, ...}) = arity
+        |   tcArity(TypeConstrs {identifier=TypeId{idKind=Free{arity, ...},...}, ...}) = arity
+
+        fun typeFromTypeParse(ParseTypeConstruction{ args, name, location, foundConstructor, ...}) =
+            let
+                (* Assign constructor, then the parameters. *)
+                val TypeConstrSet(constructor, _) = lookupType (name, location)
+                val () =
+                    (* Check that it has the correct arity. *)
+                    case constructor of
+                        TypeConstrs{name=tcName, ...} =>
+                        let
+                            val arity = tcArity constructor
+                            val num = length args
+                        in
+                            if arity <> num andalso not (isUndefinedTypeConstr constructor)
+                            then (* Give an error message *)
+                            errorMessage (lex, location,
+                                String.concat["Type constructor (", tcName,
+                                    ") requires ", Int.toString arity, " type(s) not ",
+                                    Int.toString num])
+                            else foundConstructor := constructor
+                        end
+                val argTypes = List.map typeFromTypeParse args
+            in
+                if isUndefinedTypeConstr constructor
+                then BadType
+                else TypeConstruction {name = name, constr = constructor,
+                                  args = argTypes, locations = [DeclaredAt location]}
+            end
+
+        |   typeFromTypeParse(ParseTypeProduct{ fields, ...}) =
+                mkProductType(List.map typeFromTypeParse fields)
+    
+        |   typeFromTypeParse(ParseTypeFunction{ argType, resultType, ...}) =
+                mkFunctionType(typeFromTypeParse argType, typeFromTypeParse resultType)
+    
+        |   typeFromTypeParse(ParseTypeLabelled{ fields, frozen, ...}) =
+            let
+                fun makeField((name, _), t, _) = mkLabelEntry(name, typeFromTypeParse t)        
+            in
+                mkLabelled(sortLabels(List.map makeField fields), frozen)
+            end
+
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref NONE, ...}, ...}) = raise Misc.InternalError "assignTypes: free type not set"
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref(SOME typ), ...}, ...}) = typ
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
+        |   typeFromTypeParse(ParseTypeId{ types=ParseTypeError, ...}) =
+                TypeVar(makeTv{value=NONE, level=Generalisable, equality=false})
+
+        |   typeFromTypeParse(ParseTypeBad) = BadType
+    in
+        typeFromTypeParse tp
+    end
+
+    fun getBoundTypeVar(ParseTypeBoundVar{index=TVIndex i, ...}) = createBoundVar false i
+    |   getBoundTypeVar ParseTypeError = BadType
+    |   getBoundTypeVar(ParseTypeFreeVar _) = raise Misc.InternalError "getBoundTypeVar: free"
+
+    (* Set a free type variable to either an outer one or to the current level. *)
+    fun setParseTypeVar(ParseTypeFreeVar{name, typeVar, equality, ...}, other, level) =
+        let
+            (* Should not have been previously set. *)
+            val _ = case !typeVar of NONE => () | _ => raise Misc.InternalError "setParseTypeVar: already set"
+            val toSet =
+                case other of
+                    SOME(ParseTypeFreeVar{typeVar=ref (SOME(otherTv as FreeTypeVar _)), ...}) => otherTv
+                |   SOME _ => raise Misc.InternalError "setParseTypeVar: other not free"
+                |   NONE => FreeTypeVar {name=name, equality=equality, level=NotGeneralisable level, uid=makeUniqueId()}
+        in
+            typeVar := SOME toSet
+        end
+
+    |   setParseTypeVar _ = raise Misc.InternalError "setParseTypeVar: not free"
+
+    fun unitTree location = ParseTypeLabelled{ fields = [], frozen = true, location = location }
 
    (* Second pass of ML parse tree. *)
    
@@ -272,23 +344,16 @@ struct
             |   SOME error =>
                     matchError (error, lex, location, moreInfo, typeEnv)
 
-        fun apply (f, arg, lex, location, moreInfo, typeEnv) =
-            case eventual f of
-                FunctionType {arg=farg, result} =>
-                (
-                    unify (farg, arg, lex, location, moreInfo, typeEnv);
-                    result
-                )
-            |   ef => (* Type variables etc. - Use general case. *)
-                let  (* Make arg->'a, and unify with the function. *)
-                    val resType  = mkTypeVar (generalisable, false, false, false)
-                    val fType    = mkFunctionType (arg, resType)
-      
-                    (* This may involve more than just assigning the type to "ef". *)
-                    val () = unify (ef, fType, lex, location, moreInfo, typeEnv);
-                in
-                    resType (* The result is the type variable unified to the result. *)
-                end
+        fun apply (f, arg: types, lex, location, moreInfo, typeEnv) =
+            let  (* Make arg->'a, and unify with the function. *)
+                val resType  = mkTypeVar (Generalisable, false)
+                val fType    = mkFunctionType (arg, resType)
+  
+                (* This may involve more than just assigning the type to "ef". *)
+                val () = unify (f, SimpleInstance fType, lex, location, moreInfo, typeEnv);
+            in
+                SimpleInstance resType (* The result is the type variable unified to the result. *)
+            end
 
         (* These cases currently use the "apply" or "unify" and may need to be improved in
            order to produce better messages.
@@ -312,7 +377,7 @@ struct
         !v
     end
 
-    fun assignValues (level, letDepth, env, near, v)  =
+    fun assignValues (level, letDepth, env, near, v): instanceType  =
     let
         val typeEnv =
         {
@@ -326,7 +391,7 @@ struct
             fun applyList last []       = last
             |   applyList _ ((h, _) :: t) =
                 let
-                    val expT = assignValues(level, depth, env, v, h)
+                    val expT: instanceType = assignValues(level, depth, env, v, h)
                     val _ =
                         if isExp andalso not (null t)
                         then (* It's not the last value and we're going to discard it *)
@@ -338,31 +403,25 @@ struct
                     applyList expT t
                 end
         in
-            applyList badType l
+            applyList badInstance l
         end
 
-        fun tcTypeVars   (TypeConstrs {typeVars,...})   = typeVars
         fun tcIdentifier (TypeConstrs {identifier,...}) = identifier
         fun tcLocations  (TypeConstrs {locations, ...}) = locations
 
         val tcEquality = isEquality o tcIdentifier;
         fun tcSetEquality(tc, eq) = setEquality(tcIdentifier tc, eq)
 
-        fun valName (Value{name, ...}) = name
-        fun valTypeOf (Value{typeOf, ...}) = typeOf
-
         fun tsConstr(TypeConstrSet(ts, _)) = ts
 
         fun isConstructor (Value{class=Constructor _, ...}) = true
-        |   isConstructor (Value{class=Exception, ...})     = true
+        |   isConstructor (Value{class=Exception _, ...})     = true
         |   isConstructor _                                  = false;
 
         (* Variables, constructors and fn are non-expansive.
            [] is a derived form of "nil" so must be included.
-           Integer and string constants are also constructors but
-           cannot involve imperative type variables. Constrained
-           versions are also non-expansive.
-           This has been extended and made more explicit in ML 97. *)
+           Integer and string constants are also constructors.
+           Constrained versions are also non-expansive. *)
         fun nonExpansive (Fn _)   = true
         |   nonExpansive (Ident _) = true
         |   nonExpansive (List{elements = [], ...}) = true
@@ -384,21 +443,8 @@ struct
 
         (* An application is non-expansive only if it is a, possibly
            constrained, constructor which is not ref. *)
-        and isNonRefConstructor (Ident {value=ref v, ...}) =
-            (* It is possible to rebind ref by way of datatype replication so we have
-               to check the type here. *)
-            let
-                fun isRefConstructor t =
-                    case eventual t of
-                        FunctionType{result, ...} =>
-                            (case eventual result of
-                                TypeConstruction{constr, ...} =>
-                                    sameTypeId (tcIdentifier constr, tcIdentifier refConstr)
-                            |   _ => false)
-                    |   _ => false
-            in
-                isConstructor v andalso not (isRefConstructor(valTypeOf v))
-            end
+        and isNonRefConstructor (Ident {value=ref(v as Value{typeOf=ValueType(typeOf, _), ...}), ...}) =
+                isConstructor v andalso not (isRefFunction typeOf)
         | isNonRefConstructor (Constraint {value, ...}) =
                 isNonRefConstructor value
         | isNonRefConstructor (Parenthesised(p, _)) =
@@ -409,10 +455,10 @@ struct
            types. Returns a type variable if the list is empty.
            This is used for lists, function values (fn .. => ...),
            handlers and case expressions. *)
-        fun assignList _ _ [] = mkTypeVar (generalisable, false, false, false)
-        |   assignList (processValue: 'a->types, _, _) _ [single] = processValue single
+        fun assignList _ _ [] = SimpleInstance(mkTypeVar (Generalisable, false))
+        |   assignList (processValue: 'a->instanceType, _, _) _ [single] = processValue single
 
-        |   assignList (processValue: 'a->types, displayValue, typeMsg)
+        |   assignList (processValue: 'a->instanceType, displayValue, typeMsg)
                             (errorMsg, itemName, separator, location, near) (tlist as hd :: tl) =
             let
                 val firstType = processValue hd
@@ -471,7 +517,7 @@ struct
                                     unifyErrorReport(lex, typeEnv) report, lex, location, foundNear near);
                                 (* Continue with "bad" which suppresses further error messages
                                    and return "bad" as the result. *)
-                                applyList(badType, n+1, t)
+                                applyList(badInstance, n+1, t)
                             end
                     end
             in
@@ -488,278 +534,253 @@ struct
                 lex);
 
         (* Makes a type for an instance of an identifier. *)
-
-        (* Get the current overload set for the function and return a new
-           instance of the type containing the overload set. *)
-        fun overloadType(Value{typeOf, access = Overloaded TypeDep, name, ...}, isConv) =
-                #1 (generaliseOverload(typeOf, List.map #1 (getOverloads name), isConv))
-        |   overloadType(Value{typeOf, ...}, _) =  #1 (generalise typeOf)
-
-        fun instanceType (v as Value{access=Overloaded TypeDep, ...}) =
-          (* Look up the current overloading for this function. *)
-                overloadType(v, false)
-
-        |   instanceType(Value{typeOf, ...}) = #1 (generalise typeOf)
+        fun instanceType(Value{typeOf=ValueType valType, ...}) = generalise valType
             (* The types of constructors and variables are copied 
                to create new instances of type variables. *)
 
-        fun makeTypeConstructor (name, typeVars, uid, locations) =
-            TypeConstrs
-            {
-                name       = name,
-                typeVars   = typeVars,
-                identifier = uid,
-                locations = locations
-            }
+        fun makeTypeConstructor (name, uid, locations) = TypeConstrs { name = name, identifier = uid, locations = locations }
 
-        fun processPattern(pat, enterResult, level, notConst, mkVar, isRec) =
-        let
-            val mapProcessPattern =
-                map (fn x => processPattern(x, enterResult, level, notConst, mkVar, isRec));
-        in
-            case pat of
-                Ident {name, value, expType, location, possible, ...} => (* Variable or nullary constructor. *)
-                let
-                    (* Look up the name. If it is a constructor then use it,
-                        otherwise return `undefined'. If it is a qualified name,
-                        i.e. it contains a full-stop, we assume it is a constructor
-                        and give an error message if it does not exist. *)
-                    (* In ML 97 recursive declarations such as val rec f = ...
-                         override constructor status.  If this is a recursive declaration
-                         we don't check for constructor status. *)
-                    val names   = splitString name;
-                    val nameVal =
-                        if isRec
-                        then undefinedValue
-                        else if #first names = ""
-                        then (* Not qualified - may be a variable. *)
-                            getOpt (#lookupVal env name, undefinedValue) 
-              
-                        else (* Qualified - cannot be a variable. *)
-                            lookupValue
-                                ("Constructor",
-                                {lookupVal= #lookupVal env, lookupStruct= #lookupStruct env},
-                                name,
-                                giveError (pat, lex, location))
+        fun processPattern(pat as Ident {name, value, expType, location, possible, ...}, enterResult, level, notConst, mkVar, isRec) =
+        (* Variable or nullary constructor. *)
+            let
+                (* Look up the name. If it is a constructor then use it,
+                    otherwise return `undefined'. If it is a qualified name,
+                    i.e. it contains a full-stop, we assume it is a constructor
+                    and give an error message if it does not exist. *)
+                (* In ML 97 recursive declarations such as val rec f = ...
+                     override constructor status.  If this is a recursive declaration
+                     we don't check for constructor status. *)
+                val names   = splitString name;
+                val nameVal as Value{class, ...} =
+                    if isRec
+                    then undefinedValue
+                    else if #first names = ""
+                    then (* Not qualified - may be a variable. *)
+                        getOpt (#lookupVal env name, undefinedValue) 
+          
+                    else (* Qualified - cannot be a variable. *)
+                        lookupValue
+                            ("Constructor",
+                            {lookupVal= #lookupVal env, lookupStruct= #lookupStruct env},
+                            name,
+                            giveError (pat, lex, location))
 
-                    (* Remember the possible names here. *)
-                    val () = possible := (fn () => allValLongNamesWithPrefix name env)
+                (* Remember the possible names here. *)
+                val () = possible := (fn () => allValLongNamesWithPrefix name env)
 
-                    val instanceType = 
-                        (* If the result is a constructor use it. *)
-                        if isConstructor nameVal (* exceptions. *)
-                        then if notConst
+                val instanceType = 
+                    (* If the result is a constructor use it. *)
+                    if (case class of Exception _ => true | Constructor _ => true | _ => false)
+                    then
+                    (
+                        if notConst
                         then
                         (
                             errorNear (lex, true, pat, location,
                                     "Identifier before `as' must not be a constructor.");
-                            badType
+                            badInstance
                         )
                         else
                         (* Must be a nullary constructor otherwise it should
                            have been applied to something. *)
                         let
                             (* set this value in the record *)
-                            val () = value := nameVal;
+                            val () = value := nameVal
                             val isNullary =
-                                case nameVal of
-                                    Value{class=Constructor{nullary, ...}, ...} => nullary
-                                |   Value{typeOf, ...} => (* exception *) not (isSome(getFnArgType typeOf))
+                                case class of
+                                    Constructor{nullary, ...} => nullary
+                                |   Exception{nullary, ...} => nullary
+                                |   _ => true (* Should not happen *)
                         in
-                            if isNullary then instanceType nameVal
+                            if isNullary then #1 (instanceType nameVal)
                             else
                             (
                                 errorNear (lex, true, pat, location,
                                             "Constructor must be applied to an argument pattern.");
-                                badType
+                                badInstance
                             )
                         end
-      
-                        (* If undefined or another variable, construct a new variable. *)
-                        else
-                        let
-                            val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
-                            val var =  mkVar(name, mkTypeVar (NotGeneralisable level, false, false, false), props)
+                    )
+                    (* If undefined or another variable, construct a new variable. *)
+                    else
+                    let
+                        val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
+                        val var as Value{typeOf=ValueType(valTypeOf, _), ...} =
+                            mkVar(name, ValueType(mkTypeVar (NotGeneralisable level, false), []), props)
+                    in
+                        checkForDots (name, lex, location); (* Must not be qualified *)
+                        (* Must not be "true", "false" etc. *)
+                        checkForBuiltIn (name, v, lex, location, false);
+                        enterResult (name, var);
+                        value := var;
+                        SimpleInstance valTypeOf (* and return its type *)
+                    end;
+            in
+                expType := (instanceType, []); (* Record the instance type.*)
+                instanceType: instanceType
+            end
+
+        |   processPattern(pat as Literal{converter=Value{typeOf=ValueType valTypeOf, ...}, expType, location, ...}, _, _, _, _, _) =
+            let
+                (* Find out the overloadings on this converter and
+                   construct an instance of it.  The converters are
+                   all functions from string to the result type. *)
+                val (instanceType, _) = generalise valTypeOf
+                (* Apply the converter to string to get the type of the
+                   literal. *)
+                val instance =
+                    apply(instanceType, stringType, lex, location, foundNear pat, typeEnv)
+            in
+                expType := instance; (* Record the instance type.*)
+                instance
+            end
+
+        |   processPattern(pat as Applic {f = con, arg, location, expType, ...}, enterResult, level, notConst, mkVar, isRec) =
+            let
+                (* Apply the function to the argument and return the result. *)
+                (* Function must be a constructor. *)
+                val conType = 
+                    case con of
+                        Ident {name, value, location, expType, possible, ...} =>
+                        let (* Look up the value and return the type. *)
+                        
+                            (* Remember the possible names here. *)
+                            val () = possible := (fn () => allValLongNamesWithPrefix name env)
+
+                            val constrVal =
+                                lookupValue 
+                                    ("Constructor",
+                                    {lookupVal   = #lookupVal env, lookupStruct = #lookupStruct env},
+                                    name, giveError (pat, lex, location));
                         in
-                            checkForDots (name, lex, location); (* Must not be qualified *)
-                            (* Must not be "true", "false" etc. *)
-                            checkForBuiltIn (name, v, lex, location, false);
-                            enterResult (name, var);
-                            value := var;
-                            valTypeOf var (* and return its type *)
-                        end;
-                in
-                    expType := instanceType; (* Record the instance type.*)
-                    instanceType
-                end
-    
-            |   Literal{converter, expType, location, ...} =>
-                let
-                    (* Find out the overloadings on this converter and
-                       construct an instance of it.  The converters are
-                       all functions from string to the result type. *)
-                    val instanceType = overloadType(converter, true)
-                    (* Apply the converter to string to get the type of the
-                       literal. *)
-                    val instance =
-                        apply(instanceType, stringType, lex, location, foundNear pat, typeEnv)
-                in
-                    expType := instance; (* Record the instance type.*)
-                    instance
-                end
-
-            |   Applic {f = con, arg, location, expType, ...} =>
-                let
-                    (* Apply the function to the argument and return the result. *)
-                    (* Function must be a constructor. *)
-                    val conType = 
-                        case con of
-                            Ident {name, value, location, expType, possible, ...} =>
-                            let (* Look up the value and return the type. *)
-                            
-                                (* Remember the possible names here. *)
-                                val () = possible := (fn () => allValLongNamesWithPrefix name env)
-
-                                val constrVal =
-                                    lookupValue 
-                                        ("Constructor",
-                                        {lookupVal   = #lookupVal env, lookupStruct = #lookupStruct env},
-                                        name, giveError (pat, lex, location));
+                            if isConstructor constrVal
+                            then
+                            let
+                                val instance as (cType, _) = instanceType constrVal
                             in
-                                if isConstructor constrVal
-                                then
-                                let
-                                    val cType = instanceType constrVal
-                                in
-                                    value := constrVal;
-                                    expType := cType; (* Record the instance type.*)
-                                    cType
-                                end
-                                else (* Undeclared or a variable. *)
-                                (
-                                    if isUndefinedValue constrVal then ()
-                                    else errorNear (lex, true, pat, location, name ^ " is not a constructor");
-                                    badType
-                                )
+                                value := constrVal;
+                                expType := instance; (* Record the instance type.*)
+                                cType
                             end
-        
-                        |   _ => (* con is not an Ident *)
+                            else (* Undeclared or a variable. *)
                             (
-                                errorNear (lex, true, pat, location,
-                                    "Constructor in a pattern was not an identifier");
-                                badType
+                                if isUndefinedValue constrVal then ()
+                                else errorNear (lex, true, pat, location, name ^ " is not a constructor");
+                                badInstance
                             )
+                        end
     
-                    val patType = processPattern(arg, enterResult, level, notConst, mkVar, isRec);
-                    (* Apply to the pattern type. *)
-                    val resultType = apply (conType, patType, lex, location, foundNear pat, typeEnv)
-                in
-                    expType := resultType; (* Record the instance type.*)
-                    resultType
-                end (* Applic *)
+                    |   _ => (* con is not an Ident *)
+                        (
+                            errorNear (lex, true, pat, location,
+                                "Constructor in a pattern was not an identifier");
+                            badInstance
+                        )
 
-            |   TupleTree{fields, expType, ...} =>
-                let
-                    (* Construct the type obtained by mapping "processPattern"
-                       onto each element of the tuple. *)
-                    val tupleType = mkProductType (mapProcessPattern fields)
-                in
-                    expType := tupleType;
-                    tupleType
-                end
+                val patType = processPattern(arg, enterResult, level, notConst, mkVar, isRec);
+                (* Apply to the pattern type. *)
+                val resultType = apply (conType, instanceToType patType, lex, location, foundNear pat, typeEnv)
+            in
+                expType := resultType; (* Record the instance type.*)
+                resultType
+            end (* Applic *)
 
-            |   Labelled {recList, frozen, expType, ...} =>
-                let (* Process each item in the list. *)
+        |   processPattern(TupleTree{fields, expType, ...}, enterResult, level, notConst, mkVar, isRec) =
+            let
+                val mapProcessPattern: parsetree list -> types list =
+                    map (fn x => instanceToType(processPattern(x, enterResult, level, notConst, mkVar, isRec)));
+                (* Construct the type obtained by mapping "processPattern"
+                   onto each element of the tuple. *)
+                val tupleType = mkProductType (mapProcessPattern fields)
+            in
+                expType := tupleType;
+                SimpleInstance tupleType
+            end
 
-                    fun mapLabels [] = []
-                    |   mapLabels ({name, valOrPat, expType, ...}::T) =
-                        (* Type is a label entry with the label name
-                           and the type of the pattern. *)
-                        let
-                            val ty = processPattern(valOrPat, enterResult, level, notConst, mkVar, isRec)
-                        in
-                            expType := ty;
-                            mkLabelEntry(name, ty) :: mapLabels T
-                        end;
-                    val patType = mkLabelled (sortLabels(mapLabels recList), frozen);
-                in
-                    expType := patType;
-                    patType
-                end
+        |   processPattern(Labelled {recList, frozen, expType, ...}, enterResult, level, notConst, mkVar, isRec) =
+            let (* Process each item in the list. *)
 
-            |   (aList as List{elements, location, expType}) =>
-                let
-                    (* Applies "processPattern" to every element of a list and
-                       unifies the types. Returns a type variable if the list
-                       is empty *)
-                    fun processElement elem =
-                        processPattern(elem, enterResult, level, notConst, mkVar, isRec)
-                    val elementType =
-                        assignList (processElement, displayParsetree, valTypeMessage)
-                            ("Elements in a list have different types.", "Item", ",", location, aList) elements
-                    val resType =
-                        if isBadType elementType
-                        then badType
-                        else mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
-                in
-                    expType := resType;
-                    resType
-                end
+                fun mapLabels [] = []
+                |   mapLabels ({name, valOrPat, expType, ...}::T) =
+                    (* Type is a label entry with the label name
+                       and the type of the pattern. *)
+                    let
+                        val ty = processPattern(valOrPat, enterResult, level, notConst, mkVar, isRec)
+                    in
+                        expType := instanceToType ty;
+                        mkLabelEntry(name, instanceToType ty) :: mapLabels T
+                    end;
+                val patType = mkLabelled (sortLabels(mapLabels recList), frozen)
+            in
+                expType := patType;
+                SimpleInstance patType
+            end
 
-            |   aConstraint as Constraint {value, given, location} =>
-                let
-                    val valType  = processPattern(value, enterResult, level, notConst, mkVar, isRec);
-                    val theType = ptAssignTypes(given, pat);
-                in
-                    (* These must be unifiable. *)
-                    case unifyTypes(valType, theType) of
-                        NONE => () (* OK. *)
-                    |   SOME report =>
-                            typeMismatch("Type mismatch in type constraint.",
-                                valTypeMessage (lex, typeEnv) ("Value:", value, valType),
-                                PrettyBlock(0, false, [],
-                                    [
-                                        PrettyString "Constraint:",
-                                        PrettyBreak(1, 0),
-                                        display(theType, 10000 (* All of it *), typeEnv)
-                                    ]),
-                                unifyErrorReport (lex, typeEnv) report,
-                                lex, location, foundNear aConstraint);
-                    theType
-                end
+        |   processPattern((aList as List{elements, location}), enterResult, level, notConst, mkVar, isRec) =
+            let
+                (* Applies "processPattern" to every element of a list and
+                   unifies the types. Returns a type variable if the list
+                   is empty *)
+                fun processElement elem =
+                    processPattern(elem, enterResult, level, notConst, mkVar, isRec)
+                val elementType =
+                    instanceToType(assignList (processElement, displayParsetree, valTypeMessage)
+                        ("Elements in a list have different types.", "Item", ",", location, aList) elements)
+            in
+                case elementType of
+                    BadType => badInstance
+                |   _ => SimpleInstance(mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis]))
+            end
 
-            |   Layered {var, pattern, location} =>
-                let
-                    (* Unify the variable and the pattern - At this stage that simply
-                     involves assigning the type of the pattern to the variable,
-                     but it may result in more unification when the variable is
-                     used *)
-              
-                    (* The "variable" must be either id or id: ty but we have to
-                     check that the id is not a constructor. *)
-                    val varType = processPattern(var,     enterResult, level, true, mkVar, isRec);
-                    val patType = processPattern(pattern, enterResult, level, notConst, mkVar, isRec)
-                    val () = unify (varType, patType, lex, location, foundNear pat, typeEnv);
-                in
-                    varType
-                end
+        |   processPattern(aConstraint as Constraint {value, given, location}, enterResult, level, notConst, mkVar, isRec) =
+            let
+                val valType  = processPattern(value, enterResult, level, notConst, mkVar, isRec);
+                val theType = SimpleInstance(ptAssignTypes(given, aConstraint))
+            in
+                (* These must be unifiable. *)
+                case unifyTypes(valType, theType) of
+                    NONE => () (* OK. *)
+                |   SOME report =>
+                        typeMismatch("Type mismatch in type constraint.",
+                            valTypeMessage (lex, typeEnv) ("Value:", value, valType),
+                            PrettyBlock(0, false, [],
+                                [
+                                    PrettyString "Constraint:",
+                                    PrettyBreak(1, 0),
+                                    display(theType, 10000 (* All of it *), typeEnv)
+                                ]),
+                            unifyErrorReport (lex, typeEnv) report,
+                            lex, location, foundNear aConstraint);
+                theType
+            end
 
-            |   Unit _ => unitType
+        |   processPattern(pat as Layered {var, pattern, location}, enterResult, level, notConst, mkVar, isRec) =
+            let
+                (* Unify the variable and the pattern - At this stage that simply
+                 involves assigning the type of the pattern to the variable,
+                 but it may result in more unification when the variable is
+                 used *)
+          
+                (* The "variable" must be either id or id: ty but we have to
+                 check that the id is not a constructor. *)
+                val varType = processPattern(var,     enterResult, level, true, mkVar, isRec);
+                val patType = processPattern(pattern, enterResult, level, notConst, mkVar, isRec)
+                val () = unify (varType, patType, lex, location, foundNear pat, typeEnv);
+            in
+                varType
+            end
 
-            |   WildCard _ => mkTypeVar (generalisable, false, false, false)
+        |   processPattern(Unit _, _, _, _, _, _) = unitInstance
 
-            |   Parenthesised(p, _) =>
-                    processPattern(p, enterResult, level, notConst, mkVar, isRec)
+        |   processPattern(WildCard _, _, _, _, _, _) = SimpleInstance (mkTypeVar (Generalisable, false))
 
-            |   _ => (* not a legal pattern *)
-                    badType
+        |   processPattern(Parenthesised(p, _), enterResult, level, notConst, mkVar, isRec) =
+                processPattern(p, enterResult, level, notConst, mkVar, isRec)
 
-        end (* processPattern *)
+        |   processPattern(_, _, _, _, _, _) = badInstance (* not a legal pattern *)
 
-        (* val assValues = assignValues level line env; *)
-        and assValues near v =
-          case v of
-            Ident {name, value, expType, location, possible, ...} =>
+
+        and assValues near (Ident {name, value, expType, location, possible, ...}) =
             let
                 val expValue =
                     lookupValue 
@@ -767,30 +788,25 @@ struct
                             {lookupVal = #lookupVal env, lookupStruct = #lookupStruct env},
                             name, giveError (near, lex, location));
                 (* Set the value and type found. *)
-                val instanceType = instanceType expValue;
+                val instanceTypeAndVars as (instanceType, _)  = instanceType expValue
             in
                 (* Include this reference in the list of local references. *)
                 case expValue of
                     Value { references=SOME{localRef, ...}, ...} =>
                         localRef := location :: ! localRef
                 |   _ => ();
-                (* Include this type in the list of instance types. *)
-                case expValue of
-                    Value { instanceTypes=SOME instanceRef, ...} =>
-                        instanceRef := instanceType :: ! instanceRef
-                |   _ => ();
-                expType := instanceType;
+                expType := instanceTypeAndVars;
                 value  := expValue;
                 possible := (fn () => allValLongNamesWithPrefix name env);
                 instanceType (* Result is the instance type. *)
             end
 
-          | Literal{converter, expType, location, ...} =>
+        |   assValues near (Literal{converter=Value{typeOf=ValueType valTypeOf, ...}, expType, location, ...}) =
             let
                 (* Find out the overloadings on this converter and
                    construct an instance of it.  The converters are
                    all functions from string to the result type. *)
-                val instanceType = overloadType(converter, true)
+                val (instanceType, _) = generalise valTypeOf
                 val instance =
                     apply(instanceType, stringType, lex, location, foundNear near, typeEnv)
             in
@@ -798,71 +814,51 @@ struct
                 instance
             end
 
-          | Applic {f, arg, location, expType, ...} => 
+        |   assValues near (Applic {f, arg, location, expType, ...}) =
             let
                 (* Apply the function to the argument and return the result. *)
-                val funType = assValues near f;
-                val argType = assValues near arg;
-                (* If this is not a constructor the expression is expansive.  We need to unify this
-                   with a type-variable with local (non-generalisable) scope to force any type
-                   variables to be monomorphic.  The reason for this is that if there are polymorphic
-                   type variables remaining in identifiers in the next pass we treat the identifier as
-                   polymorphic and wrap a function round it. *)
-                val () =
-                    if nonExpansive v
-                    then ()
-                    else (unifyTypes (funType, mkTypeVar(NotGeneralisable level, false, false, false)); ())
+                val funType = assValues near f
+                val argType = assValues near arg
+                val funResType = mkTypeVar (Generalisable, false)
+                val funArgType = mkTypeVar (Generalisable, false)
+                val fType = mkFunctionType (funArgType, funResType)
                 (* Test to see if we have a function. *)
-                val fType =
-                    case eventual funType of
-                        FunctionType {arg, result} => SOME(arg, result)
-                    |   _ => (* May be a simple type variable. *)
-                        let
-                            val funResType = mkTypeVar (generalisable, false, false, false)
-                            val funArgType = mkTypeVar (generalisable, false, false, false)
-                            val fType    = mkFunctionType (funArgType, funResType)
-                        in
-                            case unifyTypes (fType, funType) of
-                                NONE => SOME(funArgType, funResType)
-                            |   SOME _ =>
-                                (
-                                    (* It's not a function. *)
-                                    typeMismatch("Type error in function application.",
-                                        valTypeMessage (lex, typeEnv) ("Function:", f, funType),
-                                        valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
-                                        PrettyString "Value being applied does not have a function type",
-                                        lex, location, foundNear near);
-                                    NONE
-                                )
-                        end
-
             in
-                case fType of
-                    NONE => badType (* Not a function *)
-                |   SOME (fArg, fResult) =>
+                case unifyTypes (SimpleInstance fType, funType) of
+                    SOME _ =>
                     (
-                        case unifyTypes (fArg, argType) of
+                        (* It's not a function. *)
+                        typeMismatch("Type error in function application.",
+                            valTypeMessage (lex, typeEnv) ("Function:", f, funType),
+                            valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
+                            PrettyString "Value being applied does not have a function type",
+                            lex, location, foundNear near);
+                        badInstance
+                    ) 
+                |   NONE =>
+                    (
+                        case unifyTypes (SimpleInstance funArgType, argType) of
                             NONE => ()
                         |   SOME report =>
                                 typeMismatch("Type error in function application.",
                                     valTypeMessage (lex, typeEnv) ("Function:", f, funType),
                                     valTypeMessage (lex, typeEnv) ("Argument:", arg, argType),
                                     unifyErrorReport (lex, typeEnv) report, lex, location, foundNear near);
-                        expType := fResult; (* Preserve for browsing. *)
-                        fResult
+                        expType := SimpleInstance funResType; (* Preserve for browsing. *)
+                        SimpleInstance funResType
                     )
             end
 
-          | Cond {test, thenpt, elsept, location, ...} =>
+        |   assValues _ (v as Cond {test, thenpt, elsept, location, ...}) =
             let
                 (* The test must be bool, and the then and else parts must be the
                    same. The result is either of these two once they have been
                    unified. *)
-                val testType = assValues v test;
-                val thenType = assValues v thenpt;
-                val elseType = assValues v elsept;
+                val testType = assValues v test
+                val thenType = assValues v thenpt
+                val elseType = assValues v elsept
             in
-                case unifyTypes(testType, boolType) of
+                case unifyTypes(testType, boolInstance) of
                     NONE => ()
                 |   SOME report =>
                         typeWrong("Condition in if-statement must have type bool.",
@@ -877,49 +873,49 @@ struct
                             valTypeMessage (lex, typeEnv) ("Then:", thenpt, thenType),
                             valTypeMessage (lex, typeEnv) ("Else:", elsept, elseType),
                             unifyErrorReport (lex, typeEnv) report, lex, location, foundNear v);
-                        badType
+                        badInstance
                     )
             end
 
-            |   TupleTree{fields, expType, ...} =>
-                let
-                    (* Construct the type obtained by mapping "assignValue" onto
-                       each element of the tuple. *)
-                    val tupleType = mkProductType (map (assValues near) fields)
-                in
-                    expType := tupleType;
-                    tupleType
-                end
+        |   assValues near (TupleTree{fields, expType, ...}) =
+            let
+                (* Construct the type obtained by mapping "assignValue" onto
+                   each element of the tuple. *)
+                val tupleType = mkProductType (map (instanceToType o assValues near) fields)
+            in
+                expType := tupleType;
+                SimpleInstance tupleType
+            end
           
-          | Labelled {recList, frozen, expType, ...} =>
+        |   assValues _ (v as Labelled {recList, frozen, expType, ...}) =
             let
                 (* Process each item in the list. *)              
                 fun labEntryToLabType {name, valOrPat, expType, ...} =
                 let
-                    val ty = assValues v valOrPat
+                    val ty = instanceToType(assValues v valOrPat)
                 in
                     expType := ty;
-                    {name = name, typeof = ty }
+                    {name = name, typeOf = ty }
                 end
             
               val expressionType =
                 mkLabelled 
-                  (sortLabels (map labEntryToLabType recList), frozen) (* should always be true *);
+                    (sortLabels (map labEntryToLabType recList), frozen) (* should always be true *)
             in
                 expType := expressionType;
-                expressionType
+                SimpleInstance expressionType
             end
 
-          | Selector {typeof, ...} =>
-              typeof (* Already made. *)
+        |   assValues _ (Selector {typeof, ...}) =
+              SimpleInstance typeof (* Already made. *)
 
-          | ValDeclaration {dec, explicit, implicit, ...} =>
-                (assValDeclaration (dec, explicit, implicit); badType (* Should never be used. *))
+        |   assValues _ (ValDeclaration {dec, explicit, implicit, ...}) =
+                (assValDeclaration (dec, explicit, implicit); badInstance (* Should never be used. *))
 
-          | FunDeclaration fund =>
-                (assFunDeclaration fund; badType (* Should never be used. *))
+        |   assValues _ (FunDeclaration fund) =
+                (assFunDeclaration fund; badInstance (* Should never be used. *))
 
-          | OpenDec{decs=ptl, variables, structures, typeconstrs, ...} =>
+        |   assValues _ (v as OpenDec{decs=ptl, variables, structures, typeconstrs, ...}) =
                 let
                     (* Go down the list of names opening the structures. *)
                     (* We have to be careful because open A B is not the same as
@@ -1015,10 +1011,10 @@ struct
                     variables := HashTable.fold (fn (_, v, t) => v :: t) [] valTable;
                     structures := HashTable.fold (fn (_, v, t) => v :: t) [] structTable;
                     typeconstrs := HashTable.fold (fn (_, v, t) => v :: t) [] typeTable;
-                    badType (* Does not return a type *)
+                    badInstance (* Does not return a type *)
                 end
     
-          | TypeDeclaration(tlist, _) =>
+        |   assValues _ (v as TypeDeclaration(tlist, _)) =
             let (* This is either a type abbreviation in the core language, in a structure
                    or in a signature or it is a type specification in a signaure. *)
                 fun messFn(name, _, new) = 
@@ -1028,14 +1024,15 @@ struct
                 val newEnv = noDuplicates messFn;
               
                 (* First match all the types on the right-hand sides. *)
-                fun processTypeBody (TypeBind {decType = SOME decType, ...}) = ptAssignTypes(decType, v)
-                |   processTypeBody _ = emptyType (* Specification. *)
+                fun processTypeBody (TypeBind {decType = SOME decType, ...}) = SOME(ptAssignTypes(decType, v))
+                |   processTypeBody _ = NONE (* Specification. *)
                 
                 val resTypes = List.map processTypeBody tlist;
               
                 (* Can now declare the new types. *)
-                fun processType (TypeBind {name, typeVars, isEqtype, nameLoc, tcon=tcRef, ...}, decType) =
+                fun processType (TypeBind {name, typeVars=tvcVars, isEqtype, nameLoc, tcon=tcRef, ...}, decType) =
                 let
+                    val typeVars = map getBoundTypeVar tvcVars
                     (* Construct a type constructor which is an alias of the
                        right-hand side of the declaration.  If we are effectively
                        giving a new name to a type constructor we use the same type
@@ -1043,24 +1040,27 @@ struct
                     val props = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
 
                     val tcon =
-                        if isEmpty decType
-                        then (* Type specification *)
-                        let
-                            val description = { location = nameLoc, name = name, description = "" }
-                        in
-                            makeTypeConstructor (name, typeVars,
-                                makeTypeId(isEqtype, false, (typeVars, EmptyType), description), props)
-                        end
-                        else case typeNameRebinding(typeVars, decType) of
-                            SOME typeId =>
-                                makeTypeConstructor (name,  typeVars,typeId, props)
-                        |   NONE =>
+                        case decType of
+                            NONE => (* Type specification *)
                             let
                                 val description = { location = nameLoc, name = name, description = "" }
                             in
-                                makeTypeConstructor (name, typeVars,
-                                    makeTypeId(isEqtype, false, (typeVars, decType), description), props)
+                                makeTypeConstructor (name,
+                                    makeTypeId(isEqtype, false, (tvcVars, NONE), description), props)
                             end
+                        |   SOME decT =>
+                            (
+                                case typeNameRebinding(typeVars, decT) of
+                                    SOME typeId =>
+                                        makeTypeConstructor (name, typeId, props)
+                                |   NONE =>
+                                    let
+                                        val description = { location = nameLoc, name = name, description = "" }
+                                    in
+                                        makeTypeConstructor (name,
+                                            makeTypeId(isEqtype, false, (tvcVars, decType), description), props)
+                                    end
+                            )
                 in
                     checkForDots  (name, lex, nameLoc); (* Must not be qualified *)
                     #enter newEnv (name, tcon); (* Check for duplicates. *)
@@ -1070,12 +1070,12 @@ struct
                    
                 val () = ListPair.app processType (tlist, resTypes);
             in
-                badType (* Does not return a type *)
+                badInstance (* Does not return a type *)
             end
         
-          | AbsDatatypeDeclaration absData => assAbsData absData
+        |   assValues _ (AbsDatatypeDeclaration absData) = assAbsData absData
 
-          | DatatypeReplication{oldType, newType, oldLoc, newLoc, ...} =>
+        |   assValues near (v as DatatypeReplication{oldType, newType, oldLoc, newLoc, ...}) =
                   (* Adds both the type and the constructors to the
                    current environment. *)
               let
@@ -1101,24 +1101,19 @@ struct
                     val locations = [DeclaredAt newLoc, SequenceNo (newBindingId lex)]
                     (* Create a new constructor with the same unique ID. *)
                     val typeID = tcIdentifier tcons
-                    val newTypeCons = makeTypeConstructor(newName, tcTypeVars tcons, typeID, locations)
+                    val newTypeCons = makeTypeConstructor(newName, typeID, locations)
     
                     (* Copy the value constructors. *)
-                    fun copyAConstructor(Value{name=cName, typeOf, class, access, ...}) =
+                    fun copyAConstructor(Value{name=cName, typeOf=ValueType(typeOf, valTempls), class, access, ...}) =
                         let
                             (* Copy the types of value constructors replacing
                                occurrences of the old type with the new one.
                                This is not strictly necessary but improves printing.
                                e.g. local datatype X = A | B in datatype Y = datatype X end;
                                A; prints  A: Y rather than A: X *)
-                            fun copyTypeCons (tcon : typeConstrs) : typeConstrs =
-                                if sameTypeId(tcIdentifier tcon, typeID)
-                                then newTypeCons
-                                else tcon;
-                            fun copyTyp (t : types) : types =
-                               copyType (t, fn x => x, (* Don't bother with type variables. *)
-                                   copyTypeCons);
-                            val newType = copyTyp typeOf;
+                            fun copyTypeCons tcon =
+                                if sameTypeId(tcIdentifier tcon, typeID) then (newTypeCons, true) else (tcon, false)
+                            val (newType, _) = copyType (typeOf, copyTypeCons)
                             val newAccess =
                                 case (access, baseStruct) of
                                     (* If we are opening a structure we must have a base structure
@@ -1129,8 +1124,8 @@ struct
                                 |    (Formal _, NONE) => access
                                 |    _ => access; (* Probably already a global. *)
                         in
-                            Value{name=cName, typeOf=newType, class=class, access=newAccess, locations=locations,
-                                  references = NONE, instanceTypes=NONE}
+                            Value{name=cName, typeOf=ValueType(newType, valTempls), class=class, access=newAccess, locations=locations,
+                                  references = NONE}
                         end
 
                 in
@@ -1141,33 +1136,31 @@ struct
                 (* This previously checked that it was a datatype but that's
                    not actually correct. *)
                 (* Enter the value constrs in the environment. *)
-                List.app (fn c => (#enterVal env) (valName c, c)) newValConstrs;
+                List.app (fn (c as Value{name, ...}) => (#enterVal env) (name, c)) newValConstrs;
                 (* Add this type constructor to the environment. *)
                 (#enterType env) (newType, newTypeCons);
-                badType (* Does not return a type *)
+                badInstance (* Does not return a type *)
             end
 
-          | (aList as List{elements, location, expType, ...}) =>
+        |   assValues _ (aList as List{elements, location, ...}) =
             let
                 val elementType =
                     assignList(assValues v, displayParsetree, valTypeMessage)
                         ("Elements in a list have different types.", "Item", ",", location, aList) elements
-                val resType =
-                    if isBadType elementType
-                    then badType
-                    else mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis])
+                val elementType = instanceToType elementType
             in
-                expType := resType;
-                resType
+                case elementType of
+                    BadType => badInstance
+                |   elementType => SimpleInstance(mkTypeConstruction ("list", tsConstr listConstr, [elementType], [DeclaredAt inBasis]))
             end
 
-          | Constraint {value, given, location} =>
+        |   assValues near (v as Constraint {value, given, location}) =
             let
                 val valType = assValues near value;
                 val theType = ptAssignTypes(given, v)
             in
                 (* These must be unifiable. *)
-                case unifyTypes(valType, theType) of
+                case unifyTypes(valType, SimpleInstance theType) of
                     NONE => () (* OK. *)
                 |   SOME report =>
                         typeMismatch("Type mismatch in type constraint.",
@@ -1176,27 +1169,25 @@ struct
                                 [
                                     PrettyString "Constraint:",
                                     PrettyBreak(1, 0),
-                                    display(theType, 10000 (* All of it *), typeEnv)
+                                    display(SimpleInstance theType, 10000 (* All of it *), typeEnv)
                                 ]),
                             unifyErrorReport (lex, typeEnv) report,
                             lex, location, foundNear v);
-                theType
+                SimpleInstance theType
             end
 
-          | (aFun as Fn {matches, location, expType, ...}) =>  (* Must unify the types of each of the alternatives.*)
+        |   assValues _ (aFun as Fn {matches, location, ...}) =  (* Must unify the types of each of the alternatives.*)
             let
                 val resType =
                     assignList(assMatchTree aFun, displayMatch, matchTypeMessage)
                         ("Clauses in fn expression have different types.", "Clause", "|", location, aFun) matches
             in
-                expType := resType;
                 resType
             end
 
-          | Unit _ =>
-              unitType
+        |   assValues _ (Unit _) = unitInstance
 
-          | Localdec {decs, body, isLocal, varsInBody, ...} =>
+        |   assValues _ (Localdec {decs, body, isLocal, varsInBody, ...}) =
             let (* Local declarations or expressions. *)
               val newValEnv  = searchList();
               val newTypeEnv = searchList();
@@ -1229,7 +1220,7 @@ struct
                 };
         
               (* Process the local declarations and discard the result. *)
-              val _ : types = assignSeq(localEnv, newLetDepth, decs, false)
+              val _ = assignSeq(localEnv, newLetDepth, decs, false)
         
               (* This is the environment used for the body of the declaration.
                  Declarations are added both to the local environment and to
@@ -1269,12 +1260,12 @@ struct
                 resType
             end (* LocalDec *)
 
-          | ExpSeq (ptl, _) =>
+        |   assValues _ (ExpSeq (ptl, _)) =
              (* A sequence of expressions separated by semicolons.
                 Result is result of last expression. *)
               assignSeq (env, letDepth, ptl, true)
 
-          | ExDeclaration(tlist, _) =>
+        |   assValues _ (v as ExDeclaration(tlist, _)) =
             let
                 fun messFn(name, _, line) =
                     errorNear (lex, true, v, line,
@@ -1288,38 +1279,38 @@ struct
                 let
                     (* Fill in any types.  If there was no type given the exception has type exn
                        otherwise it has type ty->exn. *)
-                    val oldType =
+                    val (oldType, nullary) =
                         case ofType of
-                            NONE => exnType
-                        |   SOME typeof => mkFunctionType(ptAssignTypes(typeof, v), exnType)
+                            NONE => (exnType, true)
+                        |   SOME typeof => (mkFunctionType(ptAssignTypes(typeof, v), exnType), false)
                     val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
     
                     val exValue = 
                         case previous of 
-                            EmptyTree => mkEx (name, oldType, locations) (* Generative binding. *)
+                            EmptyTree => mkEx (name, ValueType(oldType, []), nullary, locations) (* Generative binding. *)
                                 
                         |   Ident {name = prevName, value = prevValue, location, expType, possible, ...} =>
                             let 
                                 (* ex = ex' i.e. a non-generative binding? *)
                                 (* Match up the previous exception. *)
-                                val prev = 
+                                val prev as Value{typeOf = excType as ValueType(oldExcType, _), ...} = 
                                     lookupValue 
                                         ("Exception",
                                             {lookupVal= #lookupVal env,
                                             lookupStruct= #lookupStruct env},
                                             prevName,
                                             giveError (v, lex, location))
-                                val excType = valTypeOf prev
-                            in
-                                (* Check that it is an exception *)
+                                val nullary = (* Check that it is an exception *)
                                 case prev of
-                                    Value{class=Exception, ...} => ()
-                                |    _ => errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception.");
+                                    Value{class=Exception{nullary}, ...} => nullary
+                                |    _ => (errorNear (lex, true, v, location, "(" ^ prevName ^ ") is not an exception."); true)
+
+                            in
                                 prevValue := prev; (* Set the value of the looked-up identifier. *)
-                                expType := excType; (* And remember the type. *)
+                                expType := (SimpleInstance oldExcType, []); (* And remember the type. *)
                                 possible := (fn () => allValLongNamesWithPrefix prevName env);
                                 (* The result is an exception with the same type. *)
-                                mkEx (name, excType, locations)
+                                mkEx (name, excType, nullary, locations)
                             end
                         | _ =>
                             raise Misc.InternalError "processException: badly-formed parse-tree"
@@ -1341,25 +1332,25 @@ struct
   
                 val () = List.app processException tlist;
             in
-                badType
+                badInstance
             end (* ExDeclaration *)
         
-          | Raise (pt, line) =>
+        |   assValues _ (v as Raise (pt, line)) =
             let
                 val exType = assValues v pt
             in
                 (* The exception value must have type exn. *)
-                case unifyTypes(exType, exnType) of
+                case unifyTypes(exType, SimpleInstance exnType) of
                     NONE => ()
                 |   SOME report =>
                         typeWrong("Exception to be raised must have type exn.",
                             valTypeMessage (lex, typeEnv) ("Raise:", pt, exType),
                             unifyErrorReport (lex, typeEnv) report, lex, line, foundNear v);
                 (* Matches anything *)
-                mkTypeVar (generalisable, false, false, false)
+                SimpleInstance(mkTypeVar (Generalisable, false))
             end
   
-        | (aHandler as HandleTree {exp, hrules, location, ...}) =>
+        |   assValues _ (aHandler as HandleTree {exp, hrules, location, ...}) =
             let
                 (* If the expression returns type E
                  the handler must be exn -> E *)
@@ -1371,27 +1362,27 @@ struct
                 (* The result type of the handlers must match the result type of the expression being
                    handled and the arguments must all have type exn. *)
                 val () = 
-                    unify (clauses, mkFunctionType (exnType, expType), lex, location, foundNear v, typeEnv);
+                    unify (clauses, SimpleInstance(mkFunctionType (exnType, instanceToType expType)), lex, location, foundNear v, typeEnv);
             in
-              expType (* Result is expType. *)
+                expType (* Result is expType. *)
             end
 
-          | While {test, body, location, ...} =>
+        |   assValues _ (v as While {test, body, location, ...}) =
             let
                 val testType = assValues v test
             in
                 (* Test must be bool. Result is unit *)
-                case unifyTypes(testType, boolType) of
+                case unifyTypes(testType, boolInstance) of
                     NONE => ()
                 |   SOME report =>
                         typeWrong("Loop condition of while-expression must have type bool.",
                             valTypeMessage (lex, typeEnv) ("While:", test, testType),
                             unifyErrorReport (lex, typeEnv) report, lex, location, foundNear v);
                 assValues v body; (* Result of body is discarded. *)
-                unitType
+                unitInstance
             end
 
-          | aCase as Case {test, match, location, expType, ...} =>
+        |   assValues _ (aCase as Case {test, match, location, ...}) =
             let
                 val funType =
                     assignList(assMatchTree aCase, displayMatch, matchTypeMessage)
@@ -1400,19 +1391,16 @@ struct
                 (* The matches constitute a function from the test type to
                    the result of the case statement, so we apply the match type
                    to the test. *)
-                val resType = apply (funType, argType, lex, location, foundNear aCase, typeEnv)
             in
-                expType := resType;
-                resType
+                apply (funType, instanceToType argType, lex, location, foundNear aCase, typeEnv)
             end
 
-          | anAndAlso as Andalso {first, second, location} =>
+        |   assValues _ (anAndAlso as Andalso {first, second, location}) =
             let
                 (* Both parts must be bool and the result is bool. *)
-                fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
+                fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref BadType }
                 val pairArgs = mkTupleTree([first, second], location)
                 val argTypes  = assValues anAndAlso pairArgs;
-                val boolStarBool = mkProductType[boolType, boolType]
                 val () =
                     case unifyTypes(argTypes, boolStarBool) of
                         NONE => ()
@@ -1421,16 +1409,15 @@ struct
                                 valTypeMessage (lex, typeEnv) ("Arguments:", pairArgs, argTypes),
                                 unifyErrorReport (lex, typeEnv) report, lex, location, foundNear anAndAlso)
             in
-                boolType
+                boolInstance
             end
 
-          | anOrElse as Orelse {first, second, location} =>
+        |   assValues _ (anOrElse as Orelse {first, second, location}) =
             let
                 (* Both parts must be bool and the result is bool. *)
-                fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref EmptyType }
+                fun mkTupleTree(fields, location) = TupleTree { fields=fields, location=location, expType = ref BadType }
                 val pairArgs = mkTupleTree([first, second], location)
                 val argTypes  = assValues anOrElse pairArgs;
-                val boolStarBool = mkProductType[boolType, boolType]
                 val () =
                     case unifyTypes(argTypes, boolStarBool) of
                         NONE => ()
@@ -1439,31 +1426,30 @@ struct
                                 valTypeMessage (lex, typeEnv) ("Arguments:", pairArgs, argTypes),
                                 unifyErrorReport (lex, typeEnv) report, lex, location, foundNear anOrElse)
             in
-                boolType
+                boolInstance
             end
 
-          | Directive { tlist, fix, ... } => 
+        |   assValues _ (Directive { tlist, fix, ... }) =
                   (
                 (* Infix declarations have already been processed by the parser.  We include
                    them here merely so that we get all declarations in the correct order. *)
                 List.app (fn name => #enterFix env (name, FixStatus(name, fix))) tlist;
-                badType
+                badInstance
                 )
 
-          | WildCard _ => (* Should never occur in an expression. *)
+        |   assValues _ (WildCard _) = (* Should never occur in an expression. *)
                   raise Misc.InternalError "assignTypes: wildcard found"
 
-          | Layered _ => 
+        |   assValues _ (Layered _) =
                   raise Misc.InternalError "assignTypes: layered pattern found"
 
-          | EmptyTree => 
+        |   assValues _ EmptyTree =
                   raise Misc.InternalError "assignTypes: emptytree found"
 
-          | Parenthesised(p, _) => assValues near p
-                
-            (* end of assValues *)
+        |   assValues near (Parenthesised(p, _)) = assValues near p
 
-          and assMatchTree _ (MatchTree {vars, exp, resType, argType, ...}) =
+    
+        and assMatchTree _ (MatchTree {vars, exp, resType, argType, ...}) =
             let 
               (* A match is a function from the pattern to the expression *)
               
@@ -1503,11 +1489,12 @@ struct
               (* Now the body. *)
               val expType = assignValues(newLevel, letDepth, bodyEnv, v, exp);
             in
-              resType := expType;
-              argType := decs;
-              (* Result is a function from the type of the pattern to the type
+                (* Save these in case they're needed for the debugger. *)
+                resType := instanceToType expType;
+                argType := instanceToType decs;
+                (* Result is a function from the type of the pattern to the type
                  of the body. This previously generalised the resulting type. Why? *)
-              mkFunctionType (decs, expType)
+                SimpleInstance(mkFunctionType (instanceToType decs, instanceToType expType))
             end (* MatchTree *)
 
         and assValDeclaration (valdecs: valbind list, explicit, implicit) =
@@ -1516,15 +1503,14 @@ struct
             val newLevel = level + 1
       
             (* Set the scope of explicit type variables. *)
-            val () = #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable newLevel));
+            val () = #apply explicit(fn (_, tv) => setParseTypeVar (tv, NONE, newLevel))
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
-               scope. *)
+               scope.  The outer occurrence can be textually later. *)
             val () = 
                 #apply implicit
-                    (fn (name, tv) =>
-                        case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable newLevel));
+                    (fn (name, tv: parseTypeVar) => setParseTypeVar(tv, #lookupTvars env name, newLevel))
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1637,27 +1623,43 @@ struct
             in
                 val () = ListPair.app checkTypes (decs, valdecs)
             end
-
-            (* Now allow generalisation on the variables being declared.
-               For imperative type variables we have to know whether the
-               expression is expansive. *)
-            fun allowGen (d, (ValBind {exp, line, ...})) =
-                (
-                    allowGeneralisation 
-                        (d, newLevel, nonExpansive exp, lex, line, foundNear v, typeEnv)
-                ) (* allowGen *)
-        in
-            ListPair.appEq allowGen (decs, valdecs);
-            (* And declare the new names into the surrounding environment. *)
+            
+            (* Generalise the list and declare the new names into the surrounding environment. *)
+            fun generaliseAndDeclare(ValBind{exp, variables=ref vars, line, ...}) =
             let
-                fun enterDec(s, v as Value{instanceTypes, ...}) =
-                (
-                    valOf instanceTypes := []; (* Remove any recursive references. *)
-                    #enterVal env (s, v)
-                )
+                fun genAndEnter(Value{name, typeOf=ValueType(typeOf, _), access, class, locations, references, ...}) =
+                let
+                    (* If this is a non-expansive context we can create a generic instance.  Otherwise the
+                       original type variables are used.  In that case we need to check that there are
+                       no references to explicit type variables. *)
+                    val valType =
+                        if nonExpansive exp
+                        then
+                        let
+                            open DEBUG
+                            val parameters = debugParams lex
+                            val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
+                        in
+                            allowGeneralisation(SimpleInstance typeOf, newLevel, checkOverloadFlex, giveError (v, lex, line))
+                        end
+                        else
+                        (
+                            if containsLocalFreeVariables(typeOf, newLevel)
+                            then errorNear (lex, true, v, line, "Explicit type variables cannot be generalised")
+                            else ();
+                            (typeOf, [])
+                        )
+                    val newValue =
+                        Value{name=name, typeOf=ValueType valType, access=access, class=class, locations=locations,
+                              references=references}
+                in
+                    #enterVal env (name, newValue)
+                end
             in
-                #apply newEnv enterDec
+                List.app genAndEnter vars
             end
+        in
+            List.app generaliseAndDeclare valdecs
         end (* assValDeclaration *)
 
         and assFunDeclaration {dec=tlist: fvalbind list, explicit, implicit, ...} =
@@ -1667,15 +1669,13 @@ struct
       
             (* Set the scope of explicit type variables. *)
             val () =
-                #apply explicit(fn (_, tv) => setTvarLevel (tv, NotGeneralisable funLevel));
+                #apply explicit(fn (_, tv) => setParseTypeVar (tv, NONE, funLevel))
 
             (* For each implicit type variable associated with this value declaration,
                link it to any type variable with the same name in an outer
                scope. *)
             val () = 
-                #apply implicit
-                  (fn (name, tv) =>
-                      case #lookupTvars env name of SOME v => linkTypeVars(v, tv) | NONE => setTvarLevel (tv, NotGeneralisable funLevel));
+                #apply implicit (fn (name, tv) => setParseTypeVar(tv, #lookupTvars env name, funLevel))
             (* If it isn't there set the level of the type variable. *)
 
             (* Construct a new environment for the variables. *)
@@ -1702,7 +1702,7 @@ struct
                     (* Declare a new identifier with this name. *)
                     val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
                     val funVar =
-                        mkValVar (name, mkTypeVar (NotGeneralisable funLevel, false, false, false), locations)
+                        mkValVar (name, ValueType(mkTypeVar (NotGeneralisable funLevel, false), []), locations)
 
                     val arity = case dec of { args, ...} => List.length args
                     val () = numOfPatts := arity;
@@ -1732,7 +1732,7 @@ struct
                    of the function names and using the information about
                    function name and number of patterns we have saved. *)
                 fun processBinding
-                    (fvalBind as FValBind {clauses, functVar=ref functVar, argType, resultType, location, ...}) =
+                    (fvalBind as FValBind {clauses, functVar=ref(Value{typeOf=ValueType(oldfuncVarType, _), name=functVarName, ...}), argType, resultType, location, ...}) =
                 let
                     (* Each fun binding in the declaration may consist of several
                        clauses. Each must have the same function name, the same
@@ -1741,7 +1741,7 @@ struct
                        errors we can report them in the most appropriate place.
                        Build a type to be used for the function.  This will later be unified
                        with the type that we've already created for the function variable. *)
-                    val funType = mkTypeVar(generalisable, false, false, false)
+                    val funType = SimpleInstance(mkTypeVar(Generalisable, false))
 
                     fun processClause (clause as FValClause {dec, exp, line, ...}) =
                     let
@@ -1753,8 +1753,8 @@ struct
                                clauses    = clauses,
                                numOfPatts = ref 0,
                                functVar   = ref undefinedValue,
-                               argType    = ref badType,
-                               resultType = ref badType,
+                               argType    = ref BadType,
+                               resultType = ref BadType,
                                location   = location
                              }
     
@@ -1772,7 +1772,7 @@ struct
                             mkFunDeclaration([mkClausal([clause], line)], explicit, implicit, line)
                         
                         val () = (* Set the type.  Only in case we look at the export tree. *)
-                            #expType ident := valTypeOf functVar
+                            #expType ident := oldfuncVarType
 
                         fun messFn (name, _, Value{locations, ...}) =
                             errorNear (lex, true, clauseAsTree, declaredAt locations,
@@ -1789,9 +1789,9 @@ struct
                         (* This list is used for the type of the helper function. *)
                         val () = argType :=
                             (case argTypeList of
-                                [] => badType (* error *)
-                            |   [single] => single
-                            |   multiple => mkProductType multiple)
+                                [] => BadType (* error *)
+                            |   [single] => instanceToType single
+                            |   multiple => mkProductType(List.map instanceToType multiple))
 
                         (* The identifiers declared in the pattern are available in the
                            body of the function. Since it is recursive the function
@@ -1834,7 +1834,7 @@ struct
                                 NONE => expTyp
                             |   SOME given =>
                                 let
-                                    val theType = ptAssignTypes(given, v)
+                                    val theType = SimpleInstance(ptAssignTypes(given, v))
                                 in
                                     case unifyTypes(expTyp, theType) of
                                         NONE => () (* OK. *)
@@ -1854,9 +1854,9 @@ struct
                         (* Remember the result type for the debugger. Actually this
                            assigns the result type for each clause in the fun but
                            they'll all be the same. *)
-                        val () = resultType := typeOfBody
+                        val () = resultType := instanceToType typeOfBody
                         (* The type of this clause is a function type. *)
-                        val clauseType = List.foldr mkFunctionType typeOfBody argTypeList
+                        val clauseType = List.foldr (fn (a, b) => SimpleInstance(mkFunctionType(instanceToType a, instanceToType b))) typeOfBody argTypeList
                         (* Unify this with the type we're using for the other clauses. *)
                         val () =
                             case unifyTypes(clauseType, funType) of
@@ -1885,7 +1885,7 @@ struct
                         fun moveRefs(FValBind{functVar=ref(Value{references,...}), ...}) =
                         let
                             val {localRef as ref locals, recursiveRef, ...} = valOf references
-                            val callerName = valName functVar (* Name of referring function. *)
+                            val callerName = functVarName (* Name of referring function. *)
                         in
                             recursiveRef := List.map (fn r => (r, callerName)) locals @ !recursiveRef;
                             localRef := []
@@ -1896,7 +1896,7 @@ struct
                     (* Finally unify the function type with the type of the function variable.  If the
                        variable has not yet been used that will simply set its type but if it has been
                        used recursively it may have been given an incompatible type. *)
-                    case unifyTypes(funType, valTypeOf functVar) of
+                    case unifyTypes(funType, SimpleInstance oldfuncVarType) of
                         NONE => () (* OK. *)
                     |   SOME report =>
                         let
@@ -1913,7 +1913,7 @@ struct
                               Ident
                                 {
                                   name   = name,
-                                  expType = ref EmptyType,
+                                  expType = ref(badInstance, []),
                                   value  = ref undefinedValue,
                                   location = loc,
                                   possible = ref(fn () => [])
@@ -1924,31 +1924,35 @@ struct
                             typeMismatch("Type of function does not match type of recursive application.",
                                 valTypeMessage (lex, typeEnv) ("Function:", fvalAsTree, funType),
                                 valTypeMessage (lex, typeEnv)
-                                    ("Variable:", mkIdent(valName functVar, location), valTypeOf functVar),
+                                    ("Variable:", mkIdent(functVarName, location), SimpleInstance oldfuncVarType),
                                 unifyErrorReport (lex, typeEnv) report,
                                 lex, location, foundNear fvalAsTree)
                         end
                 end
             in
                 val () = List.app processBinding tlist
-            end;
+            end
 
+            fun generaliseAndDeclare(
+                    FValBind{functVar as ref(Value{typeOf=ValueType(typeOf, _), access, class, locations, name, references, ...}), location, ...}) =
+            let
+                open DEBUG
+                val parameters = debugParams lex
+                val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
+                val valType =
+                    allowGeneralisation(SimpleInstance typeOf, funLevel, checkOverloadFlex, giveError (v, lex, location))
+                val newValue =
+                    Value{name=name, typeOf=ValueType valType, access=access, class=class, locations=locations,
+                          references=references}
+            in
+                #enterVal env (name, newValue);
+                functVar := newValue
+            end
         in
             (* Now declare the new names into the surrounding environment,
                releasing the copy flags on the type variables. All fun
                bindings are non-expansive. *)
-            List.app
-                (fn(FValBind{
-                    functVar as ref(var as Value{typeOf, locations, name, instanceTypes, ...}), ...}) =>
-                (
-                    (* Generalise the types.  allowGeneralisation side-effects the type variables,
-                       replaces any that can be generalised by general variables. *)
-                    allowGeneralisation(typeOf, funLevel, true, lex, declaredAt locations, foundNear v, typeEnv);
-                    (* Remove any recursive references.  This really isn't right. *)
-                    valOf instanceTypes := [];
-                    #enterVal env (name, var);
-                    functVar := var
-                )) tlist
+            List.app generaliseAndDeclare tlist
         end (* assFunDeclaration *)
 
         and assAbsData({typelist=typeList, withtypes, declist, equalityStatus, isAbsType=isAbs, ...}) =
@@ -1980,10 +1984,10 @@ struct
             
                 val newId =
                     if letDepth = 0
-                    then makeTypeId(false, true, (typeVars, EmptyType), description)
+                    then makeTypeId(false, true, (typeVars, NONE), description)
                     else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
-                val tc = makeTypeConstructor(name, typeVars, newId, locations)
+                val tc = makeTypeConstructor(name, newId, locations)
             in
                 tcon := TypeConstrSet(tc, []);
                 enterType(TypeConstrSet(tc, []), name);
@@ -2005,22 +2009,22 @@ struct
             (* First match all the types on the right-hand sides using the
                datatypes and the existing bindings. *)
             local
-                fun processType (TypeBind {decType = SOME decType, ...}) = localAssignTypes decType
-                |   processType _ = emptyType
+                fun processType (TypeBind {decType = SOME decType, ...}) = SOME(localAssignTypes decType)
+                |   processType (TypeBind {decType = NONE, ...}) = NONE
             in
                 val decTypes = List.map processType withtypes
             end;
 
             (* Can now enter the `withtypes'. *)
-            fun enterWithType (TypeBind {name, typeVars, nameLoc, tcon=tcRef, ...}, decType) =
+            fun enterWithType (TypeBind {name, typeVars=tcvVars, nameLoc, tcon=tcRef, ...}, decType) =
             let
                 val description = { location = nameLoc, name = name, description = "" }
                 (* Construct a type constructor which is an alias of the
                    right-hand side of the declaration. *)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
                 val tcon =
-                    makeTypeConstructor (name, typeVars,
-                        makeTypeId(false, false, (typeVars, decType), description), locations)
+                    makeTypeConstructor (name,
+                        makeTypeId(false, false, (tcvVars, decType), description), locations)
                 val tset = TypeConstrSet(tcon, [])
             in
                 tcRef := tset;
@@ -2043,7 +2047,9 @@ struct
             fun genValueConstrs (DatatypeBind {name, typeVars, constrs, nameLoc, tcon, ...}, typ) =
             let
                 val numOfConstrs = length constrs;
-                val typeVarsAsTypes = List.map TypeVar typeVars
+                val typeVarsAsTypes = List.map getBoundTypeVar typeVars
+                (* Default template for each type variable. *)
+                val templates = List.map (fn _ => TemplPlain{ equality=false }) typeVars
         
                 (* The new constructor applied to the type variables (if any) *)
                 val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
@@ -2063,8 +2069,10 @@ struct
                                 (mkFunctionType (localAssignTypes argtype, resultType), false)
                     val locations = [DeclaredAt idLocn, SequenceNo (newBindingId lex)]
                     val cons =
-                        makeValueConstr (name, constrType, isNullary, numOfConstrs, Local{addr = ref ~1, level = ref baseLevel},
-                                         locations)
+                        Value { name = name, typeOf = ValueType(constrType, templates),
+                            access = Local{addr = ref ~1, level = ref baseLevel},
+                            class = Constructor { nullary = isNullary, ofConstrs = numOfConstrs },
+                            locations = locations, references = NONE }
         
                     (* Name must not be qualified *)
                     val () = checkForDots (name, lex, idLocn);
@@ -2164,7 +2172,7 @@ struct
                     ()
                 end;
         in
-            badType (* Does not return a type *)
+            badInstance (* Does not return a type *)
         end (* assAbsData *)
     in 
         assValues near v
@@ -2194,193 +2202,18 @@ struct
       assignValues(1, 0, env, v, v)
     end (* pass2 *);
 
-    (* Before code-generation perform an extra pass through the tree to remove
-       unnecessary polymorphism.  The type-checking computes a most general
-       type for a value, typically a function, but it is frequently used in
-       situations where a less general type would suffice. *)
-    (* Note: if the less general type involves a local datatype this isn't
-       done to avoid a possible bug with datatypes defined after the
-       function. *)
-    fun setLeastGeneralTypes(p: parsetree, _: lexan) =
-    let
-        (* Because of mutual recursion we need to process the set of variables
-           produced by a fun-declaration or a val rec declaration as a group.
-           We also process no-recursive val bindings here for simplicity.  *)
-        fun processVariableSet(variables: values list) =
-        let
-            (* Two polymorphic values that are involved in mutual recursion will have
-               the same type variable in both values.  When we produce the least
-               general type we have to consider all the types that may be used for
-               those variables. Unfortunately, because of flexible records we need
-               to repeat the unification we did in the previous pass. *)
-            local
-                fun getTypeVarsAndInstance (Value{typeOf, instanceTypes, ...}, vars) =
-                let
-                    val instances = ! (valOf instanceTypes)
-                    fun getPolyVars typ =
-                    let
-                        val (copied, tyVars) = generalise typeOf
-                        (* Unify the types.  If there's an error we return a fresh set of the type
-                           variables which gives the most general type.
-                           There shouldn't be an error but there is one
-                           circumstance at least where we can get an error here.  If we have a functor
-                           declaration followed by an application of the functor in the same "program"
-                           we can set an entry in instanceTypes of a Value used in the functor declaration
-                           to an instance in the functor application because the instanceTypes value is
-                           inherited into the functor signature if there's no explicit signature.
-                           We really need to handle this properly and not inherit the instanceTypes
-                           value in that case.  Test116 shows this. *)
-                    in
-                        if isSome(unifyTypes(copied, typ))
-                        then #2 (generalise typeOf)
-                        else tyVars (* Return the type vars instantiated to the instance types. *)
-                    end
-                    (* This returns a list, one entry for each instance, of a list of the
-                       type variables for that instance. *)
-                    val instanceVarLists = List.map getPolyVars instances
-                    (* Transpose that list so we get a list, one entry for each type variable,
-                       of all the instance types that are possible. *)
-                    fun transpose ([]::_) = []
-                    |   transpose (args as _::_) = (List.map hd args) :: transpose (List.map tl args)
-                    |   transpose [] = []
-                    val instanceVars = transpose instanceVarLists
-                    (* Get the original type variables. *)
-                    val originalVars = getPolyTypeVars(typeOf, fn _ => NONE)
-                    (* Look to see if we already have some of the original vars in the list.
-                       If we have we use the same ref for each var and merge the instance types. *)
-                    fun mergeVars(ovar, iTypes) =
-                        case List.find (fn (tv, _) => sameTv(tv, ovar)) vars of
-                            NONE => (ovar, ref iTypes)
-                        |   SOME(matched as (_, otherRef)) =>
-                                ( otherRef := iTypes @ ! otherRef; matched)
-                    val mergedList = ListPair.map mergeVars (originalVars, instanceVars) @ vars
-                in
-                    mergedList
-                end
-            in
-                (* Get a list of the original type variables each with a reference containing
-                   the shared list of instance types. *)
-                val typeVarMap = List.foldl getTypeVarsAndInstance [] variables
-            end
-            local
-                fun reduceTypes(tv, ref types) =
-                    (* Although tv is a type variable it could occur as the least general type.
-                       Unify takes care of that. *)
-                    if isSome(unifyTypes(TypeVar tv, leastGeneral(List.map #value types)))
-                    then raise Misc.InternalError "reduceTypes: Unable to set type vars"
-                    else ()
-            in
-                val () = List.app reduceTypes typeVarMap
-            end
-        in
-            ()
-        end
-
-        fun leastGenExp(ValDeclaration{dec, ...}) =
-            (
-                (* Val declarations may be recursive or non-recursive.  In the case of
-                   recursive declarations we need to handle these in the same way as
-                   fun-declarations. *)
-                (* Gather all the variables and process them as a group.  There can't be
-                   any dependencies between them except for mutual recursion. *)
-                processVariableSet
-                        (List.foldl (fn (ValBind{variables=ref variables, ...}, vars) => variables @ vars) [] dec);
-                List.app (fn ValBind{exp, ...} => leastGenExp exp) dec
-            )
-
-        |   leastGenExp(FunDeclaration{dec, ...}) =
-            (
-                (* First process the outer declarations. *)
-                processVariableSet(List.map(fn FValBind{functVar=ref var, ...} => var) dec);
-                (* Then process the inner declarations.  Setting the outer type may have set the
-                   instance types within the bodies. *)
-                let
-                    fun processClause(FValClause{exp, ...}) = leastGenExp exp
-                    fun processBind(FValBind{clauses, ...}) = List.app processClause clauses
-                in
-                    List.app processBind dec
-                end
-            )
-
-        |   leastGenExp(Localdec{decs, body, ...}) =
-            (
-                (* Process the body expressions in order but the declarations must be done in
-                   reverse order after the body. *)
-                List.app (leastGenExp o #1) body;
-                List.foldr (fn ((p, _), ()) => leastGenExp p) () decs
-            )
-
-        |   leastGenExp(AbsDatatypeDeclaration { declist, ... }) =
-                (* Declarations in reverse order *)
-                List.foldr (fn ((p, _), ()) => leastGenExp p) () declist
-
-            (* All the rest of these just involve processing sub-expressions. *)
-        |   leastGenExp(Applic{f, arg, ...}) = (leastGenExp f; leastGenExp arg)
-
-        |   leastGenExp(Cond{test, thenpt, elsept, ...}) =
-                (leastGenExp test; leastGenExp thenpt; leastGenExp elsept)
-
-        |   leastGenExp(TupleTree{fields, ...}) = List.app leastGenExp fields
-
-        |   leastGenExp(Constraint{value, ...}) = leastGenExp value
-
-        |   leastGenExp(Fn {matches, ...}) = List.app (fn MatchTree{exp, ...} => leastGenExp exp) matches
-
-        |   leastGenExp(ExpSeq(ptl, _)) = List.app (leastGenExp o #1) ptl
-
-        |   leastGenExp(HandleTree{exp, hrules, ...}) =
-                (leastGenExp exp; List.app (fn MatchTree{exp, ...} => leastGenExp exp) hrules)
-
-        |   leastGenExp(While{test, body, ...}) = (leastGenExp test; leastGenExp body)
-
-        |   leastGenExp(Case{test, match, ...}) =
-                (leastGenExp test; List.app (fn MatchTree{exp, ...} => leastGenExp exp) match)
-
-        |   leastGenExp(Andalso {first, second, ...}) = (leastGenExp first; leastGenExp second)
-
-        |   leastGenExp(Orelse{first, second, ...}) = (leastGenExp first; leastGenExp second)
-
-        |   leastGenExp(Labelled{recList, ...}) = List.app (leastGenExp o #valOrPat) recList
-
-        |   leastGenExp(List{elements, ...}) = List.app leastGenExp elements
-
-        |   leastGenExp(Parenthesised(p, _)) = leastGenExp p
-
-        |   leastGenExp _ = ()
-
-    in
-        leastGenExp p
-    end
-
     (* Types that can be shared. *)
     structure Sharing =
     struct
-        type lexan      = lexan
-        and  pretty     = pretty
-        and  codetree   = codetree
-        and  codeBinding = codeBinding
-        and  types      = types
-        and  values     = values
-        and  typeId     = typeId
-        and  structVals = structVals
-        and  typeConstrs= typeConstrs
-        and  typeVarForm=typeVarForm
-        and  env        = env
-        and  fixStatus  = fixStatus
-        and  structureIdentForm = structureIdentForm
+        type parsetree = parsetree
+        and  types = types
+        and  parseTypeVar = parseTypeVar
+        and  typeId = typeId
+        and  lexan = lexan
+        and  env = env
+        and  instanceType = instanceType
         and  typeParsetree = typeParsetree
-        and  parsetree  = parsetree
-        and  valbind    = valbind
-        and  fvalbind   = fvalbind
-        and  fvalclause = fvalclause
-        and  typebind   = typebind
-        and  datatypebind=datatypebind
-        and  exbind     = exbind
-        and  labelRecEntry=labelRecEntry
-        and  ptProperties = ptProperties
-        and  matchtree   = matchtree
-        and  typeVarMap = typeVarMap
-        and  level = level
+        and  typeConstrSet = typeConstrSet
     end
 
-end (* PARSETREE *);
+end;

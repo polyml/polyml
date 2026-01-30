@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016 David C.J. Matthews
+    Copyright (c) David C.J. Matthews 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,18 +15,24 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature PRINTTABLESIG =
+(* Export signature for PARSE_TYPE *)
+signature PARSETYPESIG =
 sig
-    type typeConstrs
-    type codetree
-  
-    val addOverload: string * typeConstrs * codetree -> unit
-    val getOverloads: string -> (typeConstrs * codetree) list
-    val getOverload: string * typeConstrs * (unit->codetree) -> codetree
-  
+    type symset
+    type lexan
+    type typeParsetree
+    type parseTypeVar
+    type location =
+        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
+          endLine: FixedInt.int, endPosition: FixedInt.int }
+     
+    val parseType: symset * lexan * {lookupTvar:string -> parseTypeVar} -> typeParsetree * location
+    
     structure Sharing:
     sig
-        type typeConstrs = typeConstrs
-        type codetree = codetree
+        type symset         = symset
+        type lexan          = lexan
+        type typeParsetree  = typeParsetree
+        type parseTypeVar   = parseTypeVar
     end
 end;

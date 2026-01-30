@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015, 2025 David C.J. Matthews
+    Copyright (c) David C.J. Matthews 2025
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -15,32 +15,28 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-signature MatchCompilerSig =
+(* Export signature for SKIPS *)
+signature SKIPS =
 sig
-    type parsetree
-    type level
-    type codetree
-    type matchtree
-    type codeBinding
+    type sys
     type lexan
-
+    type symset
     type location =
         { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
           endLine: FixedInt.int, endPosition: FixedInt.int }
-    and matchContext = { mkAddr: int->int, level: level, lex: lexan }
 
-    val codeMatchPatterns:
-        matchtree list * codetree * bool * location * (int -> codetree) * matchContext -> codetree * bool
-    and codeBindingPattern:
-        parsetree * codetree * location * matchContext -> codeBinding list * bool
-
+    val notfound: string * lexan -> unit
+    val badsyms:  sys * lexan -> unit
+    val getsym:   sys * lexan -> unit
+    val skipon:   symset * symset * string * lexan -> unit
+    val getid:    symset * symset * lexan -> string * location
+    val getLabel: symset * lexan -> string * location
+    val getList:  sys * symset * lexan -> ('b -> 'a * location * 'b) -> 'b -> 'a list * location * 'b
+    
     structure Sharing:
     sig
-        type parsetree = parsetree
-        type level = level
-        type codetree = codetree
-        type matchtree = matchtree
-        type codeBinding = codeBinding
-        type lexan = lexan
+        type sys        = sys
+        and lexan       = lexan
+        and symset      = symset
     end
 end;

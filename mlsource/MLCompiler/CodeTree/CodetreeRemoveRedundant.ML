@@ -288,7 +288,7 @@ struct
                 in
                     case indKind of
                          IndVariant => NONE
-                    |    other => SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, indKind = indKind})
+                    |    _ => SOME(Indirect{base=cleanCode(base, [UseField(offset, codeUse)]), offset=offset, indKind = indKind})
                 end
 
             |   doClean codeUse (Tuple{ fields, isVariant = false}) =
@@ -340,18 +340,14 @@ struct
                     (* Remove unused arguments.  They're unnecessary and may cause problems
                        later on. *)
                     fun filterUnused [] = ([], [])
-                    |   filterUnused (({use=[], value, ...}, _) :: args) =
-                        let
-                            val (used, discards) = filterUnused args
-                            (* We only need to keep this if it might have a side-effect. *)
-                        in
-                           (used, NullBinding(cleanCode(value, [UseGeneral])) :: discards)
-                        end
-                    |   filterUnused(({value, addr, use}, t) :: args) =
+                    |   filterUnused(({value, addr, ...}, t) :: args) =
                         let
                             val (used, discards) = filterUnused args
                         in
-                            (({value=cleanCode(value, use), addr=addr, use=use}, t) :: used, discards)
+                            case Array.sub(locals, addr) of
+                                [] => (* We only need to keep this if it might have a side-effect. *)
+                                    (used, NullBinding(cleanCode(value, [UseGeneral])) :: discards)
+                            |   use => (({value=cleanCode(value, use), addr=addr, use=use}, t) :: used, discards)
                         end
                     val (usedArgs, discards) = filterUnused arguments
                 in
@@ -359,19 +355,15 @@ struct
                     then
                     let
                         fun splitArgs([], []) = ([], [])
-                        |   splitArgs((arg, _) :: args, ({use=[], ...}, _) :: arguments) =
+                        |   splitArgs((arg as (argVal, _)) :: args, ({addr, ...}, _) :: arguments) =
                             let
                                 val (useArgs, discards) = splitArgs(args, arguments)
                             in
                                 (* We actually only need to keep this argument if it might have
                                    a side-effect but keep it anyway. *)
-                                (useArgs, NullBinding arg :: discards)
-                            end
-                        |   splitArgs(arg :: args, _ :: arguments) =
-                            let
-                                val (useArgs, discards) = splitArgs(args, arguments)
-                            in
-                                (arg :: useArgs, discards)
+                                case Array.sub(locals, addr) of
+                                    [] => (useArgs, NullBinding argVal :: discards)
+                                |   _ => (arg :: useArgs, discards)
                             end
                         |   splitArgs _ = raise InternalError "splitArgs"
 
