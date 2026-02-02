@@ -9,7 +9,7 @@
         Cambridge University Technical Services Limited
 
     Further development:
-    Copyright (c) 2000-9, 2012-2018, 2020, 2025 David C.J. Matthews
+    Copyright (c) 2000-9, 2012-2018, 2020, 2025-6 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -490,6 +490,28 @@ struct
         else NONE
 
     fun setPreferredInt c = prefInt := c
+    (* Create an argument map for a type function. *)
+
+    fun createTypeFnArgumentMap(arguments, argTyMap) =
+    let
+        fun createVar arg = TypeVar(makeTv {value=SOME(Instance(arg, argTyMap)), level=Generalisable, equality=false})
+        val tvars = List.map createVar arguments
+        val tvMap =
+            case tvars of
+                [] => (fn _ => NONE)
+            |   [a] => (fn TVIndex 0 => SOME a | _ => NONE)
+            |   [a, b] => (fn TVIndex 0 => SOME a |  TVIndex 1 => SOME b | _ => NONE)
+            |   [a, b, c] => (fn TVIndex 0 => SOME a |  TVIndex 1 => SOME b |  TVIndex 2 => SOME c | _ => NONE)
+            |   l =>
+                let
+                    val len = List.length l
+                    val v = Vector.fromList l
+                in
+                    fn TVIndex n => if n < len then SOME(Vector.sub(v, n)) else NONE
+                end
+    in
+        tvMap
+    end
 
   (* This 3-valued logic is used because in a few cases we may not be sure
      if equality testing is allowed. If we have 2 mutually recursive datatypes
@@ -553,7 +575,7 @@ struct
         local
             val eqRefArray = BoolArray.array(arity, false)
             fun lookupBTV(TVIndex i) = BoolArray.update(eqRefArray, i, true)
-            val eq = computeEqualityWithinTypeConstructor(resType, fn _ => No, lookupBTV)
+            val eq = computeEqualityWithinTypeConstructor(resType, fn _ => No, fn _ => NONE, lookupBTV)
         in
             val eqRes =
                 case eq of
@@ -581,36 +603,64 @@ struct
        computing equality for a type function.  It indicates that equality for the
        type function does actually depend on the bound variable.   *)
     
-    and computeEqualityWithinTypeConstructor (ty, lookupTypId, referenceBoundId) : tri =
+    and computeEqualityWithinTypeConstructor (ty, lookupTypId, bvMap, referenceBoundId) : tri =
     let
         (* Can't use foldT because it is not monotonic: equality on ref 'a is allowed. *)
         (* Returns Yes only if equality testing is allowed for all types in the list. *)
         fun eqForList ([],    soFar) = soFar
         |   eqForList (x::xs, soFar) = 
-            case computeEqualityWithinTypeConstructor (x, lookupTypId, referenceBoundId) of
+            case computeEqualityWithinTypeConstructor (x, lookupTypId, bvMap, referenceBoundId) of
                 No    => No
             |   Maybe => eqForList (xs, Maybe)
             |   Yes   => eqForList (xs, soFar)
     in
         case ty of
-            BoundTypeVar(_, index) => (referenceBoundId index; Yes) (* It is always true. *)
+            BoundTypeVar(_, index) =>
+            (
+                (* Look up the bound variable first in case this is within a type function. *)
+                case bvMap index of
+                    SOME t => computeEqualityWithinTypeConstructor (t, lookupTypId, fn _ => NONE, referenceBoundId)
+                |   NONE => (referenceBoundId index; Yes) (* It is always true. *)
+            )
+
+        |   TypeVar(TypeVariable{link=ref l, ...}) =>
+                (* We may get a type variable from createTypeFnArgumentMap below. *)
+            (
+                case followRefChainToEnd l of
+                    SOME(Instance(arg, argTypeMap)) =>
+                        computeEqualityWithinTypeConstructor (arg, lookupTypId, argTypeMap, referenceBoundId)
+                |   _ => raise InternalError "computeEqualityWithinTypeConstructor: bad typevar"
+            )
 
         |   FunctionType {...} => No  (* No equality on function types! *)
 
         |   TypeConstruction {constr=TypeConstrs
-                {identifier as TypeId{idKind = TypeFn{equality, ...}, ...},...}, args, ...} =>
+                {identifier as TypeId{idKind = TypeFn{equality, resType, ...}, ...},...}, args, ...} =>
             let
                 (* Check this identifier.  If this is a "withtype" it may be processed now
-                   which will modify the "equality" ref. When computeEquality is called
+                   which could modify the "equality" ref. When computeEquality is called
                    other than from computeDatatypeEqualities lookupTypId returns No.
                    That doesn't matter for datatypes since we first look at the equality
                    state for the datatype and only call lookupTypId if it is false. *)
                 val testId = lookupTypId identifier
             in
-                case !equality of
-                    TypeFnEqNever => No
-                |   TypeFnEq bv =>
+                case (testId, !equality) of
+                    (Maybe, _) =>
                     let
+                        val argMap = createTypeFnArgumentMap(args, fn _ => NONE)
+                    in
+                        (* If we are currently processing the type fn as part of a datatype/withtype construction we won't
+                           yet have set the value of "equality" so we don't know which arguments to filter out.
+                           The only solution is to expand the function and use that. *)
+                        computeEqualityWithinTypeConstructor (resType, lookupTypId, argMap, referenceBoundId)
+                    end
+
+                     (* Equality has already been determined. *)
+                |   (_, TypeFnEqNever) => No
+
+                |   (_, TypeFnEq bv) =>
+                    let
+                        (* Type functions cannot be directly recursive; they can only form part of loop of datatypes. *)
                         (* Only some of the arguments may be necessary for equality.  See comment in makeGeneralTypeFunction. *)
                         fun filterArgs(arg, (n, l)) = (n+1, if BoolVector.sub(bv, n) then arg::l else l)
                         val (_, filtered) = List.foldl filterArgs (0, []) args
@@ -863,7 +913,7 @@ struct
     end
 
     (* Can this be used to set an eqtype? Used in "where type" constructions in signatures. *)
-    fun typePermitsEquality ty = computeEqualityWithinTypeConstructor (ty, fn _ => No, fn _ => ()) <> No
+    fun typePermitsEquality ty = computeEqualityWithinTypeConstructor (ty, fn _ => No, fn _ => NONE, fn _ => ()) <> No
 
   (* When a datatype is declared we test to see if equality is allowed. The
      types are mutually recursive so value constructors of one type may
@@ -900,7 +950,7 @@ struct
                    allowed are parameters to the datatype so if we have a type variable
                    then equality is allowed for this datatype.  *)
                 val eq = 
-                    computeEqualityWithinTypeConstructor (arg, genEquality, fn _ => ())
+                    computeEqualityWithinTypeConstructor (arg, genEquality, fn _ => NONE, fn _ => ())
             in
                 if eq = No
                 then (* Not allowed. *) No
@@ -934,13 +984,21 @@ struct
                         let
                             val eqRefArray = BoolArray.array(arity, false)
                             fun lookupBoundTV(TVIndex i) = BoolArray.update(eqRefArray, i, true)
-                            val eq = computeEqualityWithinTypeConstructor (resType, genEquality, lookupBoundTV)
-                            val eqRes =
-                                case eq of
-                                    No => TypeFnEqNever
-                                |   _ => TypeFnEq(BoolArray.vector eqRefArray)
+                            val eq = computeEqualityWithinTypeConstructor (resType, genEquality, fn _ => NONE, lookupBoundTV)
                         in
-                            equality := eqRes;
+                            (* Set the equality status of the type if this has been determined. *)
+                            case eq of
+                                No =>
+                                (
+                                    equality := TypeFnEqNever;
+                                    enter (constructorId, Processed No)
+                                )
+                            |   Yes =>
+                                (
+                                    equality := TypeFnEq(BoolArray.vector eqRefArray);
+                                    enter (constructorId, Processed Yes)
+                                )
+                            |   Maybe => ();
                             eq
                         end
 
@@ -966,8 +1024,8 @@ struct
         let
             (* Enter every datatype into the list as "NotSeen".  computeEquality only
                 calls lookupTypId if equality for a datatype is false.  Ensure that here
-                although currently new datatypes always have this.  Also set withtypes although
-                that doesn't really matter. *)
+                although currently new datatypes always have this.  Set the type fns (withtypes)
+                to not allow equality at this stage. *)
             fun enterInitial(dec as TypeConstrSet(TypeConstrs{identifier, ...}, _)) =
             (
                 case identifier of
@@ -979,24 +1037,34 @@ struct
             List.app enterInitial types
         end;
 
-        (* Apply genEquality to each element of the list.  If this is a withtype it will *)
+        (* Apply genEquality to each element of the list. *)
         let
             fun generateEq(TypeConstrSet(TypeConstrs{identifier, ...}, _)) =
-                let
-                    val eqForCons = genEquality identifier
-                in
-                    (* If the result is "Maybe" it involves a recursive reference, but
-                       the rest of the type allows equality. The type admits equality. *)
-                    if eqForCons = No
-                    then () (* Equality not allowed *)
-                    else
-                    ( (* Turn on equality. *)
-                        case identifier of
-                            TypeId{idKind = TypeFn _, ...} => ()
-                        |   _ => setEquality(identifier, true);
-                        enter(identifier, Processed Yes)
-                    )
-                end
+                (
+                    case genEquality identifier of
+                        No => (* Equality not allowed. *)
+                            enter(identifier, Processed No)
+                    |   _ =>
+                        (* If the result is "Maybe" it involves a recursive reference, but
+                           the rest of the type allows equality. The type admits equality. *)
+                        (
+                            case identifier of
+                                TypeId{idKind = TypeFn{resType, equality, arity, ...}, ...} =>
+                                let
+                                    (* We have to compute the set of variables again.  Actually, if this is
+                                       a monotype we could avoid that. *)
+                                    val eqRefArray = BoolArray.array(arity, false)
+                                    fun lookupBoundTV(TVIndex i) = BoolArray.update(eqRefArray, i, true)
+                                    val _ = computeEqualityWithinTypeConstructor (resType, genEquality, fn _ => NONE, lookupBoundTV)
+                                in
+                                    equality := TypeFnEq(BoolArray.vector eqRefArray)
+                                end
+
+                            |   _ => setEquality(identifier, true);
+
+                            enter(identifier, Processed Yes)
+                        )
+                )
         in
             List.app generateEq types
         end
@@ -1622,33 +1690,7 @@ struct
     fun recordNotFrozen (TypeVar(TypeVariable{link=ref l, ...})) =
             (case followRefChainToEnd l of NONE => false | SOME t => recordNotFrozen(instanceToType t))
     |   recordNotFrozen (FlexibleRecordVar{fullList=ref full, ...}) = not(#frozen(followRefChainToEnd full))
-    |   recordNotFrozen _ = false (* record or type alias *);
-
-    (* If this is a nullary constructor it returns NONE otherwise it returns the argument type. *)
-(*    fun exceptionArgType (FunctionType{arg, ...}) = SOME arg
-    |   exceptionArgType _ = NONE*)
-
-    (* Create an argument map for a type function. *)
-    fun createTypeFnArgumentMap(arguments, argTyMap) =
-    let
-        fun createVar arg = TypeVar(makeTv {value=SOME(Instance(arg, argTyMap)), level=Generalisable, equality=false})
-        val tvars = List.map createVar arguments
-        val tvMap =
-            case tvars of
-                [] => (fn _ => NONE)
-            |   [a] => (fn TVIndex 0 => SOME a | _ => NONE)
-            |   [a, b] => (fn TVIndex 0 => SOME a |  TVIndex 1 => SOME b | _ => NONE)
-            |   [a, b, c] => (fn TVIndex 0 => SOME a |  TVIndex 1 => SOME b |  TVIndex 2 => SOME c | _ => NONE)
-            |   l =>
-                let
-                    val len = List.length l
-                    val v = Vector.fromList l
-                in
-                    fn TVIndex n => if n < len then SOME(Vector.sub(v, n)) else NONE
-                end
-    in
-        tvMap
-    end
+    |   recordNotFrozen _ = false (* record or type alias *)
 
     (* Look for the occurrence of locally declared datatypes in the type of a value.
        This works by looking to see if we have a reference to a local datatype whose
