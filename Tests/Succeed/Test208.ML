@@ -33,3 +33,30 @@ struct
     
     fun f (x: t1, y) = x = y
 end;
+
+(* Some additional checks.  The function involves equality but the
+   type variable is not an equality type. *)
+signature NONEQ =
+sig
+    type 'a t
+    val f: 'a t * 'a t -> bool
+end;
+
+structure S1: NONEQ =
+struct
+    type 'a t = 'a ref
+    fun f (x:'a t, y) = x = y
+end;
+
+
+structure S2: NONEQ =
+struct
+    type 'a t = 'a array
+    fun f (x:'a t, y) = x = y
+end;
+
+structure S3: NONEQ =
+struct
+    type 'a t = 'a list ref
+    fun f (x as ref [], y) = x = y | f _ = raise Match
+end;

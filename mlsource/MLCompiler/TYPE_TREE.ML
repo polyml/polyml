@@ -1869,13 +1869,11 @@ struct
                     val (t, map) = canonicalise args
                 in
                     case t of
-                        TypeVar(TypeVariable{link=tLink, level=tLevel, equality=tEq})=>
+                        TypeVar(TypeVariable{link=tLink, level=tLevel, ...})=>
                         let
                             val (tLinkVar, _) = followRefChainToRef tLink
                             val (tLevelVar, tLevelVal) = followRefChainToRef tLevel
-                            val (tEqVar, tEqVal) = followRefChainToRef tEq
-                            (* The level is the minimum of the two, and if we are unifying with
-                               an equality type variable we must make this into one. *)
+                            (* The level is the minimum of the two. *)
                             val minLev = minLevel(varLevelVal, tLevelVal)
                         in
                             (* If the links are the same we have an occurs check failure. *)
@@ -1883,9 +1881,9 @@ struct
                             then true
                             else
                             (
-                                (* We have to link equality and level but only on the end.  Don't link them. *)
-                                tEqVar := ChainEnd(varEqVal orelse tEqVal);
-                                tLevelVar := ChainEnd minLev;
+                                (* Set the level but not equality.  Equality will be set, if necessary,
+                                   by equalityForInstance  which will deal correctly with types such as "ref". *)
+                                tLevelVar := ChainEnd minLev; (* Don't link them. *)
                                 false (* OK. *)
                             )
                         end
@@ -1911,13 +1909,11 @@ struct
                     |   LabelledRecord recList =>
                             List.foldl (fn ({ typeOf, ... }, v) => occursCheckFails (typeOf, map) v) false recList
 
-                    |   FlexibleRecordVar{recList=ref recl, equality, level, ...} =>
+                    |   FlexibleRecordVar{recList=ref recl, level, ...} =>
                         let
                             (* Have to set the properties that will apply to new fields. *)
-                            val (eqVar, equality) = followRefChainToRef equality
                             val (levelVar, level) = followRefChainToRef level
                             val minLev = minLevel(varLevelVal, level)
-                            val () = eqVar := ChainEnd(equality orelse varEqVal)
                             val () = levelVar := ChainEnd minLev
                         in
                             List.foldl (fn ({typeOf, ... }, v) => occursCheckFails (typeOf, map) v) false (followRefChainToEnd recl)
