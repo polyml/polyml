@@ -22,18 +22,10 @@ structure Misc :
 (*                  Misc exports signature                                  *)
 (*****************************************************************************)
 sig
-  (* standard exceptions used by the compiler *) 
-  exception Interrupt; 
-
-  (* These are handled in the compiler *)
-  exception Conversion of string;     (* string to int conversion failure *)
-
   (* This isn't handled at all (except generically) *)
   exception InternalError of string; (* compiler error *)
 
   val quickSort : ('a -> 'a -> bool) -> 'a list -> 'a list
-
-  val unescapeString : string -> string
 
   val lookupDefault : ('a -> 'b option) -> ('a -> 'b option) -> 'a -> 'b option
 end  =
@@ -42,12 +34,6 @@ end  =
 (*                  Misc structure body                                      *)
 (*****************************************************************************)
 struct
-  exception Interrupt = SML90.Interrupt; 
-
-  (* These are handled in the compiler *)
-  (* Conversion may be also raised by run-time Conversion routines *)
-  exception Conversion = RunCall.Conversion
-
   (* This isn't handled at all (except generically) *)
   exception InternalError of string; (* compiler error *)
 
@@ -70,29 +56,6 @@ struct
     in
         qs(l, [])
     end
-
-    (* Convert a string, recognising and converting escape codes.  This is
-       installed as the initial string conversion function and replaced
-       when the String structure is compiled.
-       We can't use fromString because it stops on invalid input and
-       returns as much as it can rather than raising an exception. *)
-    fun unescapeString(s: string) : string =
-        let
-        val len = size s
-        fun rdr i =
-            if i = len then NONE
-            else SOME(String.sub(s, i), i+1)
-        (* Repeatedly convert escape sequences and accumulate the
-           results in a list. *)
-        fun convChars i =
-            if i = len then [] (* Finished *)
-            else case Char.scan rdr i of
-                NONE => (* Bad conversion *)
-                    raise Conversion "Invalid string constant"
-              | SOME(res, j) => res :: convChars j
-        in
-            String.implode(convChars 0)
-        end
 
   fun lookupDefault first second = (fn key => case first key of NONE => second key | v => v);
 

@@ -1069,7 +1069,7 @@ struct
                     then StringCvt.HEX else StringCvt.DEC
                 in
                     case StringCvt.scanString (Int.scan radix) s of
-                        NONE => raise Misc.Conversion "Invalid integer constant"
+                        NONE => raise RunCall.Conversion "Invalid integer constant"
                       | SOME res => res
                 end
         
@@ -1080,7 +1080,7 @@ struct
                     then StringCvt.HEX else StringCvt.DEC
                 in
                     case StringCvt.scanString (Word.scan radix) s of
-                        NONE => raise Misc.Conversion "Invalid word constant"
+                        NONE => raise RunCall.Conversion "Invalid word constant"
                       | SOME res => res
                 end
             
@@ -1092,11 +1092,31 @@ struct
             in
                 case Char.scan rdr 0 of
                     NONE => (* Bad conversion *)
-                        raise Misc.Conversion "Invalid string constant"
+                        raise RunCall.Conversion "Invalid string constant"
                 |   SOME(res, _) => res
             end
 
-            val convstringCode = genCode(mkConst(toMachineWord Misc.unescapeString), [], 0) ()
+            (* We can't use fromString because it stops on invalid input and
+               returns as much as it can rather than raising an exception. *)
+            fun unescapeString(s: string) : string =
+            let
+                val len = size s
+                fun rdr i =
+                    if i = len then NONE
+                    else SOME(String.sub(s, i), i+1)
+                (* Repeatedly convert escape sequences and accumulate the
+                   results in a list. *)
+                fun convChars i =
+                    if i = len then [] (* Finished *)
+                    else case Char.scan rdr i of
+                        NONE => (* Bad conversion *)
+                            raise RunCall.Conversion "Invalid string constant"
+                      | SOME(res, j) => res :: convChars j
+            in
+                String.implode(convChars 0)
+            end
+
+            val convstringCode = genCode(mkConst(toMachineWord unescapeString), [], 0) ()
             val convintCode = genCode(mkConst(toMachineWord intOfString), [], 0) ()
             val convwordCode = genCode(mkConst(toMachineWord wordOfString), [], 0) ()
             val convcharCode = genCode(mkConst(toMachineWord unescapeChar), [], 0) ()

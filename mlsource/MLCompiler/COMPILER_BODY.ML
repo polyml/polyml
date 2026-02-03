@@ -216,10 +216,10 @@ struct
     in
         baseCompiler(lex, nameSpace, debugSwitches)
       handle
-        SML90.Interrupt =>
+        Thread.Thread.Interrupt =>
         (
             printReport "Compilation interrupted\n";
-            raise SML90.Interrupt
+            raise Thread.Thread.Interrupt
         )
          
       | Misc.InternalError s =>

@@ -1187,7 +1187,7 @@ struct
         in
             SOME(RunCall.unsafeCast(valOf(evalue conv)) literal)
                 handle Match => NONE (* Overload error *)
-                  | Misc.Conversion s =>
+                  | RunCall.Conversion s =>
                         (
                             error("Conversion exception ("^s^") raised while converting " ^
                                     literal ^ " to " ^ name);
