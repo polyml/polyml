@@ -45,6 +45,8 @@ struct
     open BackendTree
     open CodeArray
 
+    exception InternalError = Misc.InternalError
+
     val word0 = toMachineWord 0;
   
     val DummyValue : machineWord = word0; (* used as result of "raise e" etc. *)
