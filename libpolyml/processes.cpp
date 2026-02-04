@@ -192,6 +192,7 @@ public:
 public:
     void BroadcastInterrupt(void);
     void BeginRootThread(PolyObject *rootFunction);
+    void WaitForTermination(); // Main loop to wait until the threads terminate or make a request.
     void RequestProcessExit(int n); // Request all ML threads to exit and set the process result code.
     // Called when a thread has completed - doesn't return.
     virtual NORETURNFN(void ThreadExit(TaskData *taskData));
@@ -1276,6 +1277,12 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
 }
 #endif
 
+static void *WaitForTermination(void *processes)
+{
+    ((Processes *)processes)->WaitForTermination();
+    return NULL; // This function should never return.
+}
+
 // Sets up the initial thread from the root function.  This is run on
 // the initial thread of the process so it will work if we don't
 // have pthreads.
@@ -1289,7 +1296,6 @@ static DWORD WINAPI NewThreadFunction(void *parameter)
 // on the inital thread.
 void Processes::BeginRootThread(PolyObject *rootFunction)
 {
-    int exitLoopCount = 100; // Maximum 100 * 400 ms.
     if (taskArray.size() < 1) {
         try {
             taskArray.push_back(0);
@@ -1298,9 +1304,10 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         }
     }
 
+    TaskData *taskData;
     try {
         // We can't use ForkThread because we don't have a taskData object before we start
-        TaskData *taskData = machineDependent->CreateTaskData();
+        taskData = machineDependent->CreateTaskData();
         Handle threadRef = MakeVolatileWord(taskData, taskData);
         taskData->threadObject = (ThreadObject*)alloc(taskData, sizeof(ThreadObject) / sizeof(PolyWord), F_MUTABLE_BIT);
         taskData->threadObject->threadRef = threadRef->Word();
@@ -1336,16 +1343,31 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
             NewThreadFunction(taskData);
         }
 
-        schedLock.Lock();
         int errorCode = 0;
+        schedLock.Lock();
+        if (userOptions.startMLCodeInMainThread)
+        {
+            // Spawn termination handling in new thread, and run ML code in current thread.
 #if (!defined(_WIN32))
-        if (pthread_create(&taskData->threadId, NULL, NewThreadFunction, taskData) != 0)
-            errorCode = errno;
+            if (pthread_create(&taskData->threadId, NULL, ::WaitForTermination, this) != 0)
+                errorCode = errno;
 #else
-        taskData->threadHandle =
-            CreateThread(NULL, 0, NewThreadFunction, taskData, 0, NULL);
-        if (taskData->threadHandle == NULL) errorCode = GetLastError();
+            taskData->threadHandle =
+                CreateThread(NULL, 0, ::WaitForTermination, this, 0, NULL);
+            if (taskData->threadHandle == NULL) errorCode = GetLastError();
 #endif
+        }
+        else
+        {
+#if (!defined(_WIN32))
+            if (pthread_create(&taskData->threadId, NULL, NewThreadFunction, taskData) != 0)
+                errorCode = errno;
+#else
+            taskData->threadHandle =
+                CreateThread(NULL, 0, NewThreadFunction, taskData, 0, NULL);
+            if (taskData->threadHandle == NULL) errorCode = GetLastError();
+#endif
+        }
         if (errorCode != 0)
         {
             // Thread creation failed.
@@ -1361,8 +1383,22 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         ::Exit("Unable to create the initial thread - insufficient memory");
     }
 
-    // Wait until the threads terminate or make a request.
-    // We only release schedLock while waiting.
+    if (userOptions.startMLCodeInMainThread)
+    {
+        // Run ML code in main thread.
+        NewThreadFunction(taskData);
+    }
+    else
+    {
+        WaitForTermination();
+    }
+}
+
+// Wait until the threads terminate or make a request.
+// We only release schedLock while waiting.
+void Processes::WaitForTermination()
+{
+    int exitLoopCount = 100; // Maximum 100 * 400 ms.
     while (1)
     {
         // Look at the threads to see if they are running.
