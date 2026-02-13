@@ -1321,12 +1321,12 @@ struct
                     PrettyBlock (0, false, [],
                         [(if separator = "*" andalso (isFunctionType v orelse isProductType v)
                         then (* Must bracket the expression *) parenthesise depth (v, vm)
-                        else dispP (v, bvMap, depth)),
+                        else dispP (v, vm, depth)),
                         PrettyBreak (if separator = "," then 0 else 1, 0),
                         PrettyString separator
                         ]) ::
                     PrettyBreak (1, 0) ::
-                    prettyList T vm (depth - 1) separator
+                    prettyList T bvMap (depth - 1) separator
                 end
 
             fun printRecord(recList, bvMap, isFrozen, depth) =
@@ -1534,7 +1534,7 @@ struct
                         (* If the argument is a function it must be printed as (a-> b)->.. *)
                         if isFunctionType evArg 
                         then parenthesise depth (evArg, evMap)
-                        else dispP (evArg, bvMap, depth - 1),
+                        else dispP (evArg, evMap, depth - 1),
                         PrettyBreak(1, 2),
                         PrettyString "->",
                         PrettyBreak (1, 2),
