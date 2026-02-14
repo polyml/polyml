@@ -860,16 +860,31 @@ struct
                                       Handle{exp= updateContainer leafFn exp, handler = updateContainer leafFn handler, exPacketAddr=exPacketAddr}
                               | updateContainer leafFn (BeginLoop {loop, arguments}) =
                                       BeginLoop {loop = updateContainer leafFn loop,arguments = arguments}
-                              | updateContainer leafFn (SetContainer {tuple,...}) = leafFn tuple
+                              | updateContainer leafFn (SetContainer {tuple,filter,...}) = leafFn (tuple,filter)
                               | updateContainer _ exp = exp
                             val newSize = BoolVector.foldl (fn (true, n) => n+1 | (false, n) => n) 0 newFilter
                         in
                             if newSize = 1
                             then
                             let
+                                fun nthTrueIndex (n, vec) =
+                                let
+                                   val len = BoolVector.length vec
+                                   fun loop (i, count) =
+                                     if i = len
+                                     then raise InternalError "nthTrueIndex"
+                                     else if BoolVector.sub(vec, i)
+                                     then
+                                         if count = n then i
+                                         else loop (i+1, count+1)
+                                     else
+                                         loop (i+1, count)
+                                in
+                                   (loop (0, 0))
+                                end
                                 (* Find the offset *)
                                 val (offset,_) = valOf (BoolVector.findi (fn (_, b) => b) newFilter)
-                                val field = updateContainer (fn tuple => mkInd(offset, tuple)) setter
+                                val field = updateContainer (fn (tuple,filter) => mkInd(nthTrueIndex(offset,filter), tuple)) setter
                                 fun mkFields n = if n = offset then field else CodeZero
                                 val fields = List.tabulate(BoolVector.length newFilter, mkFields)
                                 val container = SetContainer{container= Extract(LoadLocal addr),
@@ -881,9 +896,19 @@ struct
                             end
                             else
                             let
+                                fun maskOut (vec, filt) =
+                                let
+                                    val filter_index = ref 0
+                                    fun f n = if BoolVector.sub(vec,n)
+                                              then (BoolVector.sub(filt,!filter_index)
+                                                    before filter_index := !filter_index + 1)
+                                              else false
+                                in
+                                    BoolVector.tabulate(BoolVector.length vec,f)
+                                end
                                 val newAddr = makeAddr()
                                 val newContainer = Extract(LoadLocal newAddr)
-                                val newSetter = updateContainer (fn tuple => SetContainer{container = newContainer ,tuple = tuple,filter= newFilter}) setter
+                                val newSetter = updateContainer (fn (tuple,filter) => mkSetContainer(newContainer, tuple, maskOut(filter,newFilter))) setter
                                 val makeContainer = Container{addr=newAddr, use=[], size=newSize, setter = newSetter}
                                 val fields = List.rev (#2 (BoolVector.foldl
                                         (fn (true,(a,l)) => (a+1,(mkIndContainer(a,newContainer))::l)
