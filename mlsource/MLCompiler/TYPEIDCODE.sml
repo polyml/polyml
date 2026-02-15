@@ -140,6 +140,8 @@ struct
                 |   (NONE, NONE) => codePrintDefault
             )
 
+        |   printCode(FreeTypeVar _, _, _) = codePrintDefault (* This can occur with "exception E of 'a". *)
+
         |   printCode(TypeConstruction { constr=TypeConstrs {identifier=TypeId{idKind = TypeFn{resType, ...}, ...},...}, args, ...}, bvMap, level) =
                 (* Type function *)
                 printCode(resType, createTypeFnArgumentMap(args, bvMap), level)
@@ -222,7 +224,7 @@ struct
                 printCode(mkTypeConstruction(name, constr, [], []), bvMap, level)
             end
 
-        |   printCode(_, _, _) = mkProc(codePrettyString "<empty>", 1, "print-empty", [], 0)
+        |   printCode(BadType, _, _) = codePrintDefault (* Put in when PolyML.print is passed as a value. *)
 
         and printRecord(recList, isTuple, isFrozen, bvMap, level) =
         let
