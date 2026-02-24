@@ -37,6 +37,7 @@ extern struct _userOptions {
     TCHAR       **user_arg_strings;
     const TCHAR *programName;
     unsigned    gcthreads;    // Number of threads to use for gc
+    bool        startMLCodeInMainThread; // Start ML code in main thread
 } userOptions;
 
 class PolyWord;
