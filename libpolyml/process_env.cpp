@@ -531,7 +531,6 @@ POLYUNSIGNED PolyProcessEnvSystem(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     try {
         TempString buff(pushedArg->Word());
         if (buff == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
-        int res = -1;
 #if (defined(_WIN32) && ! defined(__CYGWIN__))
         // Windows.
         TCHAR * argv[4];
@@ -606,9 +605,13 @@ POLYUNSIGNED PolyProcessEnvSystem(POLYUNSIGNED threadId, POLYUNSIGNED arg)
                     processes->ThreadPauseForIO(taskData, &waiter);
                 }
 #else
+                int res = -1;
                 int wRes = waitpid(pid, &res, WNOHANG);
                 if (wRes > 0)
+                {
+                    result = Make_fixed_precision(taskData, res);
                     break;
+                }
                 else if (wRes < 0)
                 {
                     raise_syscall(taskData, "Function system failed", errno);
@@ -631,7 +634,6 @@ POLYUNSIGNED PolyProcessEnvSystem(POLYUNSIGNED threadId, POLYUNSIGNED arg)
                 throw;
             }
         }
-        result = Make_fixed_precision(taskData, res);
 
     }
     catch (KillException&) {
