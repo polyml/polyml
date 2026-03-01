@@ -74,14 +74,11 @@ sharing type SYMSET.symset = SKIPS.symset
 struct
  open SYMBOLS
  open SYMSET;   infix 9 ++; infix 4 inside;
- open LEX;
- open SKIPS;
  open STRUCTVALS;
  open TYPETREE;
  open PARSETREE;
  open STRUCTURES;
  open PARSETYPE;
- open UTILITIES;
  open SIGNATURES
 
  (* constant sets defined here to reduce run-time garbage SPF 24/9/94 *)
@@ -119,7 +116,7 @@ struct
 
   fun mkLocalFixEnv {lookupFix,lookupTvar, ...} =
   let
-    val newFixEnv   = searchList ();
+    val newFixEnv   = UTILITIES.searchList ();
   in
     {
       enterFix      = #enter newFixEnv,
@@ -136,12 +133,12 @@ struct
     }
 
   fun getLongId (kind, fsys, lex): string * location =
-    getid (kind, fsys, lex);
+    SKIPS.getid (kind, fsys, lex);
 
   fun getShortId (kind, fsys, lex): string * location =
   let
-    val idLoc as (iden, location) = getid (kind, fsys, lex);
-    val () = checkForDots (iden, lex, location);
+    val idLoc as (iden, location) = SKIPS.getid (kind, fsys, lex);
+    val () = UTILITIES.checkForDots (iden, lex, location);
   in
     idLoc
   end;
@@ -166,8 +163,11 @@ struct
      if 0 < size ident
          andalso String.str(String.sub(ident, 0)) >= "1"
          andalso String.str(String.sub(ident, 0)) <= "9"
-     then errorMessage (lex, location lex, errMessage)
+     then LEX.errorMessage (lex, LEX.location lex, errMessage)
      else ();
+
+     fun reportDup lex (name, newLoc, _) =
+         LEX.errorMessage (lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
 
  in
 
@@ -187,18 +187,18 @@ struct
            variables are actually bound. *)
         fun getTypeVar seq =
         (* Read a type variable and return it. *)
-        case sy lex of
+        case LEX.sy lex of
             TypeIdent =>
             let
-                val iden = id lex
-                val locn = location lex
+                val iden = LEX.id lex
+                val locn = LEX.location lex
        
                 (* Each type variable must be distinct. *)
                 val () = 
                 apply
                     (fn (nm,_) => 
                         if nm = iden (* Same name ? *)
-                        then errorMessage (lex, location lex, 
+                        then LEX.errorMessage (lex, LEX.location lex,
                             nm ^ " has already been used.")
                         else ()
                     )
@@ -210,35 +210,35 @@ struct
                     |   TVCreateFree => makeParseTypeFreeVar(iden, isEqtype iden)
             in
                 enter (iden, tyVar);
-                insymbol lex;
+                LEX.insymbol lex;
                 (tyVar, locn, seq+1)
             end
         |   _ =>
         (
-            badsyms (SYMBOLS.TypeIdent, lex);
-            (parseTypeVarError, location lex, seq+1)
+            SKIPS.badsyms (SYMBOLS.TypeIdent, lex);
+            (parseTypeVarError, LEX.location lex, seq+1)
         )
    in
         (* May be one type variable or a bracketed sequence. *)
-        case sy lex of
+        case LEX.sy lex of
             TypeIdent => [#1(getTypeVar 0)] (* One type var. *)
         |   LeftParen => (* Sequence. *)
             (
-                insymbol lex;
+                LEX.insymbol lex;
                 (* There is an awkward parsing problem here if we have either
                    val (a, b) = ... or fun (a X b) = ... We only know that we
                     haven't got a tyvarseq once we find a symbol that isn't a
                     tyvar.  The easiest way round this is to push the parenthesis
                    back into the lex stream and return an empty tyvarseq. *)
-                case sy lex of
+                case LEX.sy lex of
                     TypeIdent =>
                     let
-                        val (t, _, _) = getList (SYMBOLS.Comma, typeIdent, lex) getTypeVar 0
+                        val (t, _, _) = SKIPS.getList (SYMBOLS.Comma, typeIdent, lex) getTypeVar 0
                     in
-                        getsym (SYMBOLS.RightParen, lex);
+                        SKIPS.getsym (SYMBOLS.RightParen, lex);
                         t
                     end
-                |   _ => (pushBackSymbol(lex, SYMBOLS.LeftParen); [] )
+                |   _ => (LEX.pushBackSymbol(lex, SYMBOLS.LeftParen); [] )
             )
         |   _ => [] (* None at all. *)
    end; (* getTypeVars *)
@@ -254,7 +254,7 @@ struct
         |   _ => false
    in
       if isInfix andalso not opThere
-      then warningMessage (lex, location,
+      then LEX.warningMessage (lex, location,
                "(" ^ id ^") has infix status but was not preceded by op.")
       else ();
       idLoc
@@ -266,13 +266,13 @@ struct
     let
         val (item, itemLocn) = p (fsys ++ andSy)
     in
-        case sy lex of
+        case LEX.sy lex of
             AndSy =>
             let
-                val () = insymbol lex
+                val () = LEX.insymbol lex
                 val (rest, restLocn) = andBindings(fsys, p)
             in
-                (item::rest, locSpan(itemLocn, restLocn))
+                (item::rest, LEX.locSpan (itemLocn, restLocn))
             end
         |   _ => ([item], itemLocn)
     end
@@ -287,7 +287,7 @@ struct
                SOME t => t
              | NONE =>
                  (
-                   errorMessage (lex, location lex, 
+                   LEX.errorMessage (lex, LEX.location lex,
                         name ^  " has not been declared in type declaration");
                    parseTypeVarError
                  )
@@ -296,7 +296,7 @@ struct
 
     fun typeBinding (isSpec, isEqtype, _) fsys =
     let
-        val newTVenv  = searchList ();
+        val newTVenv  = UTILITIES.searchList ();
         val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
         val (typeName, idLocn)   = getShortId (ident, fsys ++ equalsSign, lex);
@@ -304,18 +304,18 @@ struct
         val (matchedType, endLocn) =
           (* If this is part of a signature we do not need to have an
            "= ty" after it. If it is an eqtype we must not have one. *)
-            if (isSpec andalso (sy lex) <> SYMBOLS.EqualsSign) orelse isEqtype
+            if (isSpec andalso (LEX.sy lex) <> SYMBOLS.EqualsSign) orelse isEqtype
             then (NONE, idLocn)
             else
             let
-                val () = getsym (SYMBOLS.EqualsSign, lex);
+                val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex);
                 (* Followed by a type or a sequence of constructors *)
-                val () = skipon (startTypeSys, fsys, "type", lex);
+                val () = SKIPS.skipon (startTypeSys, fsys, "type", lex);
                 val (t, l) = parseType (fsys, lex, typeVarEnv)
             in
                 (SOME t, l)
             end
-        val bindLocn = locSpan(idLocn, endLocn)
+        val bindLocn = LEX.locSpan (idLocn, endLocn)
     in
         (mkTypeBinding (typeName, typeVars, matchedType, isEqtype, idLocn, bindLocn), bindLocn)
     end (* typeBinding *);
@@ -328,27 +328,27 @@ struct
       either the second datatype or an identifier.
       This is used both for declarations and for specifications. *)
        let
-        val () = insymbol lex;
-        val newTVenv = searchList ();
+        val () = LEX.insymbol lex;
+        val newTVenv = UTILITIES.searchList ();
         (* The type variables will be empty if this is a replication. *)
         val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
         val (typeName, idLocn) = getShortId (ident, fsys ++ equalsSign, lex);
         
-        val () = getsym (SYMBOLS.EqualsSign, lex);
+        val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex);
        in
-        case sy lex of
+        case LEX.sy lex of
             DatatypeSy => (* Replication *)
             let
                 (* Check that the type var sequence was empty. *)
                 val () =
                     case typeVars of
                         [] => ()
-                     |  _ => errorMessage (lex, location lex,
+                     |  _ => LEX.errorMessage (lex, LEX.location lex,
                                      "Datatype replication must not contain type variables");
-                val () = insymbol lex;
+                val () = LEX.insymbol lex;
                 val (originalTypeName, repLocn) = getLongId (ident, fsys, lex);
-                val fullLocn = locSpan(startLocn, repLocn)
+                val fullLocn = LEX.locSpan (startLocn, repLocn)
             in
                 (mkDatatypeReplication{newType=typeName, oldType=originalTypeName,
                     newLoc=idLocn, oldLoc=repLocn, location=fullLocn}, fullLocn)
@@ -361,25 +361,25 @@ struct
                         typeName, typeVars, newTVenv, idLocn, isSpecification);
                 (* Process any others *)
                 val (dbs, dbsLocn) =
-                    case sy lex of
+                    case LEX.sy lex of
                         AndSy => 
                             (
-                                insymbol lex;
+                                LEX.insymbol lex;
                                 andBindings
                                     (fsys ++ withtypeSy, datatypeBinding isSpecification)
                             )
                     |   _ => ([], dbLocn)
 
                 val (withtypes, lastLocn) =
-                    case sy lex of
+                    case LEX.sy lex of
                         WithtypeSy =>
                             (
-                                insymbol lex;
+                                LEX.insymbol lex;
                                 andBindings(fsys, typeBinding(false, false, env))
                             )
                     |   _ => ([], dbsLocn)
 
-                val fullLocn = locSpan(startLocn, lastLocn)
+                val fullLocn = LEX.locSpan (startLocn, lastLocn)
             in
                 (mkDatatypeDeclaration (db :: dbs, withtypes, fullLocn), fullLocn)
             end
@@ -389,7 +389,7 @@ struct
     (* Process the rest of a binding. *)
     let
         (* Followed by a type or a sequence of constructors *)
-        val () = skipon (startTypeDeclarableVarOpSy, fsys, "type", lex);
+        val () = SKIPS.skipon (startTypeDeclarableVarOpSy, fsys, "type", lex);
 
         (* In ML 90 all type variables on the right hand side of a datbind
            had to appear in the tyvarseq on the left.  That restriction
@@ -401,14 +401,14 @@ struct
         fun constrs fsys =
         let
             val () =
-                case sy lex of
+                case LEX.sy lex of
                     OpSy =>
                     (
                         if isSpecification
-                        then warningMessage (lex, location lex,
+                        then LEX.warningMessage (lex, LEX.location lex,
                                          "``op'' may not appear before a constructor in a specification.")
                         else ();
-                        insymbol lex
+                        LEX.insymbol lex
                     )
                 |   _ => ()
             (* Identifier - name of constructor *)
@@ -419,29 +419,29 @@ struct
                 being declared. Otherwise it is a constant of the type 
                 being declared. *)
             val (component, componentLoc) =
-                case sy lex of
+                case LEX.sy lex of
                     OfSy =>
                     let
-                        val () = insymbol lex;(* Followed by a type. *)
+                        val () = LEX.insymbol lex;(* Followed by a type. *)
                         val (theType,typeLocn) = parseType (fsys ++ verticalBar, lex, typeVarEnv)
                     in
-                        (mkValueConstr(constrName, SOME theType, idLocn), locSpan(idLocn, typeLocn))
+                        (mkValueConstr(constrName, SOME theType, idLocn), LEX.locSpan (idLocn, typeLocn))
                     end
                 |   _ => (mkValueConstr(constrName, NONE, idLocn), idLocn);
         in
-            case sy lex of
+            case LEX.sy lex of
                 VerticalBar =>
                 let
-                    val () = insymbol lex
+                    val () = LEX.insymbol lex
                     val (tail, locn) = constrs fsys
                 in
-                    (component :: tail, locSpan(componentLoc, locn))
+                    (component :: tail, LEX.locSpan (componentLoc, locn))
                 end
             |   _ => ([component], componentLoc)
          end
          
         val (constrs, constrsLocn) = constrs fsys
-        val bindLocn = locSpan(idLocn, constrsLocn)
+        val bindLocn = LEX.locSpan (idLocn, constrsLocn)
     in
         (mkDatatypeBinding (typeName, typeVars, constrs, idLocn, bindLocn), bindLocn)
     end
@@ -449,12 +449,12 @@ struct
     and datatypeBinding isSpecification fsys =
     (* Datatype and abstype declarations and datatype specifications. *)
     let
-        val newTVenv = searchList ();
+        val newTVenv = UTILITIES.searchList ();
         val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
         val (typeName, idLocn) = getShortId (ident, fsys ++ equalsSign, lex);
 
-        val () = getsym (SYMBOLS.EqualsSign, lex);
+        val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex);
     in
         datatypeBind (fsys, typeName, typeVars, newTVenv, idLocn, isSpecification)
     end;
@@ -462,22 +462,22 @@ struct
     (* infix, infixr and nonfix *)
     fun fixity (lex, env) =
     let
-        val sym = sy lex
-        and startLocn = location lex
-        val () = insymbol lex
+        val sym = LEX.sy lex
+        and startLocn = LEX.location lex
+        val () = LEX.insymbol lex
         
         fun getPrecedence() =
-            case sy lex of
+            case LEX.sy lex of
                 IntegerConst => (* Read a precedence number *)
                 let
-                    val num = valOf(Int.fromString (id lex))
+                    val num = valOf(Int.fromString (LEX.id lex))
                 in
                     if num < 0 orelse num > 9
-                    then errorMessage (lex, location lex,
-                          "Precedence " ^ id lex ^ 
+                    then LEX.errorMessage (lex, LEX.location lex,
+                          "Precedence " ^ LEX.id lex ^
                           " not allowed, must be between 0 and 9")
                     else ();
-                    insymbol lex;
+                    LEX.insymbol lex;
                     num
                 end
             |   _ => 0 (* default is zero *);
@@ -490,12 +490,12 @@ struct
             |   _ => raise Misc.InternalError "fixity"
  
         (* Should now be at least one variable. *)
-        val () = skipon (variableSys, fsys, "Variable", lex);
+        val () = SKIPS.skipon (variableSys, fsys, "Variable", lex);
 
         (* Read the variables and put them in the environ
            with their fix status. Qualified names prohibited. *)
         fun vars endLoc =
-        if (sy lex) inside variableSys
+        if (LEX.sy lex) inside variableSys
         then
         let
             val (iden, idLoc) = getShortId (variableSys, fsys, lex);
@@ -507,7 +507,7 @@ struct
         else ([], endLoc);
         
         val (variables, endLoc) = vars startLocn
-        val fullLocn = locSpan(startLocn, endLoc)
+        val fullLocn = LEX.locSpan (startLocn, endLoc)
     in
         (mkDirective (variables, fixForm, fullLocn), fullLocn)
     end
@@ -518,7 +518,7 @@ struct
       environment if it is not already there. Type variables are always put into
       the most local scope first and then tidied up in the second pass. *)
    let
-       val {enter,lookup,apply} = searchList ();
+       val {enter,lookup,apply} = UTILITIES.searchList ();
        
        (* Type variables used here should go in the scope of the
            most local val or fun. *)
@@ -543,22 +543,22 @@ struct
     let
         (* Sequence of declarations optionally separated by semicolons. *)
         fun decSequence(fsys, env) : parsetree list =
-        if (sy lex) = SYMBOLS.Semicolon
+        if (LEX.sy lex) = SYMBOLS.Semicolon
         then (* Semicolons are optional. *)
-            (insymbol lex; decSequence(fsys, env))
-        else if (sy lex) inside startDecSys
+            (LEX.insymbol lex; decSequence(fsys, env))
+        else if (LEX.sy lex) inside startDecSys
         then
             #1(dec(fsys ++ semicolonStartDecSy, lex, true, env)) :: decSequence(fsys, env)
         else (* May be empty *) [];
 
         (* Constraints *)
         fun constraint (exp, expLoc) fsys (env as {lookupTvar, ...}) =
-            case sy lex of
+            case LEX.sy lex of
                 Colon =>
                 let
-                    val () = insymbol lex
+                    val () = LEX.insymbol lex
                     val (constrType, typeLoc) = parseType (fsys ++ colon, lex, {lookupTvar=lookupTvar})
-                    val locs = locSpan(expLoc, typeLoc)
+                    val locs = LEX.locSpan (expLoc, typeLoc)
                 in
                     constraint (mkConstraint (exp, constrType, locs), locs) fsys env
                 end
@@ -567,10 +567,10 @@ struct
         fun getConstant mkConst =
         let
             (* Return the string. *)
-            val data = id lex; (* Save it before insymbol. *)
-            val loc  = location lex
+            val data = LEX.id lex; (* Save it before LEX.insymbol. *)
+            val loc  = LEX.location lex
         in
-            insymbol lex;
+            LEX.insymbol lex;
             mkConst(data, loc)
         end;
 
@@ -584,14 +584,14 @@ struct
             fun parseApplication fsys (funExp, funLoc) : parsetree * location =
             (* Applies a function to an argument and then tries to apply
                that to the next expression/pattern. *)
-            if (sy lex) inside startSys
+            if (LEX.sy lex) inside startSys
             then (* Read an argument and apply the constructor *)
-                if (sy lex) inside opSys andalso
+                if (LEX.sy lex) inside opSys andalso
                     (
                         (* It is infix if we find it and it has been declared
                            as infix. If it hasn't been declared then it isn't
                            infix. *)
-                        case lookupFix(id lex) of
+                        case lookupFix(LEX.id lex) of
                             SOME (FixStatus(_, Infix _)) => true
                         |   SOME (FixStatus(_, InfixR _)) => true
                         |   _ => false
@@ -601,7 +601,7 @@ struct
             else
                 let
                     val (arg, argLoc) = atomic (fsys ++ startSys)
-                    val appLoc = locSpan(funLoc, argLoc)
+                    val appLoc = LEX.locSpan (funLoc, argLoc)
                 in
                     parseApplication fsys (mkApplic (funExp, arg, appLoc, false), appLoc)
                 end
@@ -615,7 +615,7 @@ struct
                     parseApplication (fsys ++ opSys) (atomic (fsys ++ opStartSy));
            
                 val (operator, loc, fix) = 
-                    if (sy lex) inside opSys
+                    if (LEX.sy lex) inside opSys
                     then
                     let
                         val (id, loc) = getLongId (opSys, fsys, lex)
@@ -623,7 +623,7 @@ struct
                     in
                         (id, loc, fixity)
                     end
-                    else ("", nullLocation, Nonfix);
+                    else ("", LEX.nullLocation, Nonfix);
 
                val (preclevl, right) = (* ~1 if not infix or infixr *)
                     case fix of
@@ -647,7 +647,7 @@ struct
                    operator in the middle. *)
                 fun checkAssociativity(op1, op2 (* Type includes unused express field. *)) =
                     if #preclevl op1 = #preclevl op2 andalso #right op1 <> #right op2
-                    then errorMessage (lex, location lex,
+                    then LEX.errorMessage (lex, LEX.location lex,
                             concat["Operators \"", #1(#operator op1), "\" and \"", #1 (#operator op2),
                                 "\" have the same precedence but \"", #1(#operator op1), "\" is ",
                                 if #right op1 then "right" else "left", "-associative while \"",
@@ -671,7 +671,7 @@ struct
                    operand. *)
 
                 val oper = mkIdent operator;
-                val appLocn = locSpan(#2 express, #2 (#express rightOp))
+                val appLocn = LEX.locSpan (#2 express, #2 (#express rightOp))
 
                 val applied = 
                   { express  = (mkApplic (oper, mkTupleTree([#1 express, #1 (#express rightOp)], appLocn), appLocn, true), appLocn),
@@ -695,7 +695,7 @@ struct
         in
             if #preclevl ops < 0 (* no operator *)
             then #express ops
-            else #express (nextLevel ops (~1, false, ("", nullLocation)))
+            else #express (nextLevel ops (~1, false, ("", LEX.nullLocation)))
         end (* parseInfix *);
 
         fun pattern fsys lex env =
@@ -706,17 +706,17 @@ struct
                 val isVar = isIdent pat;
                 val (constr, constrLoc) = constraint (pat, patLoc) (fsys ++ asSy) env;
             in
-                case sy lex of
+                case LEX.sy lex of
                     AsSy =>
                     let (* Layered pattern *)
-                        val () = insymbol lex
+                        val () = LEX.insymbol lex
                         val () =
                             if not isVar
-                            then errorMessage (lex, location lex,
+                            then LEX.errorMessage (lex, LEX.location lex,
                                              "Expected id or id:ty before `as'")
                             else ();
                         val (lPatt, lPattLoc) = pattern fsys lex env
-                        val layeredLoc = locSpan(patLoc, lPattLoc)
+                        val layeredLoc = LEX.locSpan (patLoc, lPattLoc)
                     in
                         (mkLayered (constr, lPatt, layeredLoc), layeredLoc)
                     end
@@ -725,18 +725,18 @@ struct
 
             fun atomicPattern fsys: parsetree * location =
             let
-                val sym = sy lex;
-                val startLocn = location lex
+                val sym = LEX.sy lex;
+                val startLocn = LEX.location lex
             in
                 case sym of
                     Underline (* wild card *) =>
-                        ( insymbol lex; (wildCard startLocn, startLocn) )
+                        ( LEX.insymbol lex; (wildCard startLocn, startLocn) )
          
                 |   LeftBrack (* list - may be empty *) =>
                 let
-                    val () = insymbol lex;
+                    val () = LEX.insymbol lex;
                     val p =
-                        case sy lex of
+                        case LEX.sy lex of
                             RightBrack => [] (* may be empty *)
                         |   _ =>
                             let
@@ -744,16 +744,16 @@ struct
                                 let
                                     val (p, _) = pattern (fsys ++ commaRightBrackSy) lex env
                                 in
-                                    case sy lex of
-                                        Comma => (insymbol lex; p :: varsList())
+                                    case LEX.sy lex of
+                                        Comma => (LEX.insymbol lex; p :: varsList())
                                     |   _ => [p]
                                 end
                             in
                                 varsList()
                             end
 
-                    val locs = locSpan(startLocn, location lex)
-                    val () = getsym (SYMBOLS.RightBrack, lex);
+                    val locs = LEX.locSpan (startLocn, LEX.location lex)
+                    val () = SKIPS.getsym (SYMBOLS.RightBrack, lex);
                 in
                     (mkList(p, locs), locs)
                 end
@@ -761,38 +761,38 @@ struct
                 (* bracketed pattern or unit value. *)
                 |   LeftParen =>
                 let
-                    val () = insymbol lex;
+                    val () = LEX.insymbol lex;
                     val p = 
-                        case sy lex of
-                            RightParen => (* unit *) unit(locSpan(startLocn, location lex))
+                        case LEX.sy lex of
+                            RightParen => (* unit *) unit(LEX.locSpan (startLocn, LEX.location lex))
                         |   _ =>
                             let
                                 val (first,_) = pattern (fsys ++ rightParenCommaSy) lex env;
                                 (* May be a tuple *)
                             in
-                                case sy lex of
+                                case LEX.sy lex of
                                     Comma =>
                                     let
-                                        val () = insymbol lex
+                                        val () = LEX.insymbol lex
                                         (* It is a tuple - read the other patterns
                                            and make the tuple. *)
                                         fun tuples () =
                                         let
                                             val (p, _) = pattern (fsys ++ rightParenCommaSy) lex env
                                         in
-                                            case sy lex of
-                                                Comma => (insymbol lex; p :: tuples())
+                                            case LEX.sy lex of
+                                                Comma => (LEX.insymbol lex; p :: tuples())
                                             |   _ => [p]
                                         end
                                      in
-                                        mkTupleTree (first :: tuples(), locSpan(startLocn, location lex))
+                                        mkTupleTree (first :: tuples(), LEX.locSpan (startLocn, LEX.location lex))
                                     end
                                 |   _ => (* just one *)
-                                    mkParenthesised(first, locSpan(startLocn, location lex))
+                                    mkParenthesised(first, LEX.locSpan (startLocn, LEX.location lex))
                             end
                         
-                    val locs = locSpan(startLocn, location lex)
-                    val () = getsym (SYMBOLS.RightParen, lex);
+                    val locs = LEX.locSpan (startLocn, LEX.location lex)
+                    val () = SKIPS.getsym (SYMBOLS.RightParen, lex);
                 in
                     (p, locs)
                 end
@@ -800,31 +800,29 @@ struct
                 (* Either a labelled record or unit. *)
                 |   LeftCurly =>
                     let
-                        val () = insymbol lex;
-                        val posEnd = location lex
+                        val () = LEX.insymbol lex;
+                        val posEnd = LEX.location lex
                     in
-                        case sy lex of
+                        case LEX.sy lex of
                             RightCurly => (* Empty brackets denote unit *)
-                                let val () = insymbol lex val locs = locSpan(startLocn, posEnd) in (unit locs, locs) end
+                                let val () = LEX.insymbol lex val locs = LEX.locSpan (startLocn, posEnd) in (unit locs, locs) end
                         |   _ =>
                             let (* lab1 = pat1, __ , labn = patn <<, ... >>*)
                                 (* The same label name should not be used more than once. *)
-                                fun reportDup (name, newLoc, _) =
-                                    errorMessage(lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
-                                val dupCheck = noDuplicates reportDup
+                                val dupCheck = UTILITIES.noDuplicates (reportDup lex)
 
                                 fun getLabels () =
-                                    case sy lex of
-                                        ThreeDots => (insymbol lex; {frozen = false, result = []})
+                                    case LEX.sy lex of
+                                        ThreeDots => (LEX.insymbol lex; {frozen = false, result = []})
                                     |   _ =>
                                     let
                                         val fsys  = fsys ++ commaRightCurlySy;
-                                        val (ident, idLoc) = getLabel (fsys ++ equalsSign, lex);
+                                        val (ident, idLoc) = SKIPS.getLabel (fsys ++ equalsSign, lex);
                                         val () = #enter dupCheck (ident, idLoc) (* Check for dups. *)
                                         val (patt, pattLoc) =
-                                            case sy lex of
+                                            case LEX.sy lex of
                                                 EqualsSign => (* Simple case -- lab = pat *)
-                                                    (insymbol lex; pattern fsys lex env)
+                                                    (LEX.insymbol lex; pattern fsys lex env)
                                             |   _ =>(* sugared form - label is also identifier *)
                                                 (
                                                     (* Sugared form not allowed for numeric labels. *)
@@ -832,12 +830,12 @@ struct
                                                     (* May have constraint and/or be layered. *)
                                                     constraintOrLayered (mkIdent (ident, idLoc), idLoc) fsys
                                                 )
-                                        val labEntry = mkLabelRecEntry(ident, idLoc, patt, locSpan(idLoc, pattLoc))
+                                        val labEntry = mkLabelRecEntry(ident, idLoc, patt, LEX.locSpan (idLoc, pattLoc))
                                     in
-                                        case sy lex of
+                                        case LEX.sy lex of
                                             Comma =>
                                             let
-                                                val () = insymbol lex
+                                                val () = LEX.insymbol lex
                                                 val getRest = getLabels ();
                                             in
                                                 {frozen = #frozen getRest, result = labEntry :: #result getRest}
@@ -847,8 +845,8 @@ struct
                                     end (* getLabels *)
                  
                                 val {frozen, result} = getLabels ();
-                                val locs = locSpan(startLocn, location lex)
-                                val () = getsym (SYMBOLS.RightCurly, lex);
+                                val locs = LEX.locSpan (startLocn, LEX.location lex)
+                                val () = SKIPS.getsym (SYMBOLS.RightCurly, lex);
                             in
                                 (mkLabelledTree (result, frozen, locs), locs)
                             end
@@ -863,7 +861,7 @@ struct
                 |   RealConst =>
                     (
                         (* Real literals were allowed in patterns in ML90. *)
-                        errorMessage (lex, location lex,
+                        LEX.errorMessage (lex, LEX.location lex,
                                    "Real constants not allowed in patterns");
                         (getConstant mkReal, startLocn)
                     )
@@ -872,23 +870,23 @@ struct
 
                 |   WordConst => (getConstant mkWord, startLocn)
 
-                |   _ => if (sy lex) inside declarableVarOpSy   (* Identifiers *)
+                |   _ => if (LEX.sy lex) inside declarableVarOpSy   (* Identifiers *)
                     then
                     let
-                        val opThere = (sy lex) = SYMBOLS.OpSy;
-                        val () = if opThere then insymbol lex else ();
+                        val opThere = (LEX.sy lex) = SYMBOLS.OpSy;
+                        val () = if opThere then LEX.insymbol lex else ();
                         val idLoc as (_, endLoc) = getLongNonInfix opThere declarableVarSys fsys lex env
                     in
-                        (mkIdent idLoc, locSpan(startLocn, endLoc))
+                        (mkIdent idLoc, LEX.locSpan (startLocn, endLoc))
                     end
 
-                    else (skipon (empty, fsys, "Pattern", lex); (emptyTree, startLocn))
+                    else (SKIPS.skipon (empty, fsys, "Pattern", lex); (emptyTree, startLocn))
 
             end (* atomicPattern *);
        
             (* pattern *)
          
-            val () = skipon (startPatternSys, fsys, "Pattern", lex);
+            val () = SKIPS.skipon (startPatternSys, fsys, "Pattern", lex);
 
             val patAndLoc = 
                 constraintOrLayered 
@@ -896,7 +894,7 @@ struct
                         startPatternSys atomicPattern env)
                     fsys;
            
-            val () = skipon (fsys, empty, "End of pattern", lex);
+            val () = SKIPS.skipon (fsys, empty, "End of pattern", lex);
         in
             patAndLoc
         end (* pattern *);
@@ -908,12 +906,12 @@ struct
             fun expressionList(fsys, separator, env): parsetree list =
             (* Sequence of expressions separated by semicolons or commas. Returns the list and strips
                the locations. *)
-                #1 (getList (separator, empty, lex) (fn () => let val (v, l) = expression fsys env in (v, l, ()) end) ())
+                #1 (SKIPS.getList (separator, empty, lex) (fn () => let val (v, l) = expression fsys env in (v, l, ()) end) ())
 
             fun match fsys: matchtree list * location =
             (* vs1.exp1 | .. | vsn.expn *)
             let
-                val () = skipon (startMatchSys, fsys, "Match", lex);
+                val () = SKIPS.skipon (startMatchSys, fsys, "Match", lex);
 
                 (* Read the pattern. *)
                 val (vars, varLoc) = pattern (fsys ++ thickArrow) lex env;
@@ -922,49 +920,49 @@ struct
                     (* We expect to get a => here but a common problem is to confuse
                        matches with fun declarations and use a = here.  We report it as
                        an error but swallow it as though it was what we wanted. *)
-                    case sy lex of
-                        ThickArrow => insymbol lex
+                    case LEX.sy lex of
+                        ThickArrow => LEX.insymbol lex
                     |   _ =>
                         (
-                            notfound ("=>", lex);
-                            if (sy lex) = SYMBOLS.EqualsSign then insymbol lex else ()
+                            SKIPS.notfound ("=>", lex);
+                            if (LEX.sy lex) = SYMBOLS.EqualsSign then LEX.insymbol lex else ()
                         )
             
                 (* And now the expression. *)
                 val (exp, expLoc) = expression (fsys ++ verticalBar) env;
 
                 (* Construct this node, and append any more. *)
-                val thisLocn = locSpan(varLoc, expLoc)
+                val thisLocn = LEX.locSpan (varLoc, expLoc)
                 val thisMatch = mkMatchTree (vars, exp, thisLocn)
                 val res =
-                    case sy lex of
+                    case LEX.sy lex of
                         VerticalBar =>
                         let
-                            val () = insymbol lex
+                            val () = LEX.insymbol lex
                             val (m, mloc) = match fsys
                         in
-                            (thisMatch :: m, locSpan(thisLocn, mloc))
+                            (thisMatch :: m, LEX.locSpan (thisLocn, mloc))
                         end
                     |   _ => ([thisMatch], thisLocn)
             in
-                skipon (fsys, empty, "End of match", lex);
+                SKIPS.skipon (fsys, empty, "End of match", lex);
                 res
             end (* end match *);
 
             fun atomicExpression fsys: parsetree * location =
             let
-                val startSym = sy lex and startLocn = location lex
+                val startSym = LEX.sy lex and startLocn = LEX.location lex
             in
                 case startSym of
                     LeftBrack =>
                     let
-                        val () = insymbol lex;
+                        val () = LEX.insymbol lex;
                         val p = 
-                            if sy lex <> SYMBOLS.RightBrack (* may be empty *)
+                            if LEX.sy lex <> SYMBOLS.RightBrack (* may be empty *)
                             then expressionList (fsys ++ commaRightBrackSy, SYMBOLS.Comma, env)
                             else [];
-                        val locs = locSpan(startLocn, location lex)
-                        val () = getsym (SYMBOLS.RightBrack, lex);
+                        val locs = LEX.locSpan (startLocn, LEX.location lex)
+                        val () = SKIPS.getsym (SYMBOLS.RightBrack, lex);
                     in
                         (mkList(p, locs), locs)
                     end
@@ -972,44 +970,44 @@ struct
                 (* A parenthesised expression, a tuple, a sequence or a unit value *)
                 |   LeftParen =>
                     let
-                        val () = insymbol lex;
-                        val posEnd = location lex
+                        val () = LEX.insymbol lex;
+                        val posEnd = LEX.location lex
                     in
-                        case sy lex of
+                        case LEX.sy lex of
                             RightParen => (* Empty parentheses denote unit *)
-                            let val () = insymbol lex val locs = locSpan(startLocn, posEnd) in (unit locs, locs) end
+                            let val () = LEX.insymbol lex val locs = LEX.locSpan (startLocn, posEnd) in (unit locs, locs) end
                         |   _ =>
                             let
                                 val (firstExp, _) = expression (fsys ++ rightParenSemicolonCommaSy) env;
        
                                 val (exps, fullLocn) =
-                                    case sy lex of
+                                    case LEX.sy lex of
                                         Comma => (* Tuple *)
                                         let
-                                            val () = insymbol lex
+                                            val () = LEX.insymbol lex
                                             val expressions =
                                                 firstExp :: expressionList (fsys ++ rightParenCommaSy, SYMBOLS.Comma, env)
-                                            val locs = locSpan(startLocn, location lex)
+                                            val locs = LEX.locSpan (startLocn, LEX.location lex)
                                         in
                                             (mkTupleTree (expressions, locs), locs)
                                         end
                                     |   Semicolon => (* Expression sequence. *)
                                         let
-                                            val () = insymbol lex
+                                            val () = LEX.insymbol lex
                                             val expressions =
                                                 firstExp :: expressionList (fsys ++ rightParenSemicolonSy, SYMBOLS.Semicolon, env)
-                                            val locs = locSpan(startLocn, location lex)
+                                            val locs = LEX.locSpan (startLocn, LEX.location lex)
                                         in
                                             (mkExpseq (expressions, locs), locs)
                                         end
                                     |   _ => (* Only one *)
                                         let
-                                            val locs = locSpan(startLocn, location lex)
+                                            val locs = LEX.locSpan (startLocn, LEX.location lex)
                                         in
                                             (mkParenthesised(firstExp, locs), locs)
                                         end;
 
-                                val () = getsym (SYMBOLS.RightParen, lex);
+                                val () = SKIPS.getsym (SYMBOLS.RightParen, lex);
                             in
                                 (exps, fullLocn)
                             end
@@ -1018,29 +1016,27 @@ struct
                 (* Either a labelled record or unit. *)
                 |   LeftCurly =>
                     let
-                        val () = insymbol lex;
-                        val posEnd = location lex
+                        val () = LEX.insymbol lex;
+                        val posEnd = LEX.location lex
                     in
-                        case sy lex of
+                        case LEX.sy lex of
                             RightCurly => (* Empty brackets denote unit *)
-                            let val () = insymbol lex val locs = locSpan(startLocn, posEnd) in (unit locs, locs) end
+                            let val () = LEX.insymbol lex val locs = LEX.locSpan (startLocn, posEnd) in (unit locs, locs) end
 
                         |   _ =>
                             let (* lab1 = exp1, __ , labn = expn *)
                                 (* The same label name should not be used more than once. *)
-                                fun reportDup (name, newLoc, _) =
-                                    errorMessage(lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
-                                val dupCheck = noDuplicates reportDup
+                                val dupCheck = UTILITIES.noDuplicates (reportDup lex)
 
                                 fun getEntry () =
                                 let
-                                    val (ident, idLoc) = getLabel (fsys ++ equalsSign, lex);
+                                    val (ident, idLoc) = SKIPS.getLabel (fsys ++ equalsSign, lex);
                                     val () = #enter dupCheck (ident, idLoc) (* Check for dups. *)
                                     val (labExp, labLoc) =
-                                        case sy lex of
+                                        case LEX.sy lex of
                                             EqualsSign => (* Simple case -- lab = expression *)
                                             (
-                                                getsym (SYMBOLS.EqualsSign, lex);
+                                                SKIPS.getsym (SYMBOLS.EqualsSign, lex);
                                                 expression (fsys ++ commaRightCurlySy) env
                                             )
                                         |   _ =>
@@ -1048,19 +1044,19 @@ struct
                                                 if recordPunning then (* sugared form - label is also variable symbol *)
                                                     ()
                                                 else
-                                                    errorMessage (lex, location lex, " = expr expected after label. If you want to use record punning, please specify it in the parser's parameters.");
+                                                    LEX.errorMessage (lex, LEX.location lex, " = expr expected after label. If you want to use record punning, please specify it in the parser's parameters.");
                                                 (* Sugared form not allowed for numeric labels. *)
                                                 assertIdentNotNumericLabel lex ident " = expr expected after numeric label";
                                                 (mkIdent (ident, idLoc), idLoc)
                                             )
-                                    val locs = locSpan(idLoc, labLoc)
+                                    val locs = LEX.locSpan (idLoc, labLoc)
                                 in
                                     (mkLabelRecEntry(ident, idLoc, labExp, locs), locs)
                                 end
-                                val (labs, _, _) = getList (SYMBOLS.Comma, empty, lex) (fn () => let val (v, l) = getEntry() in (v, l, ()) end) ()
-                                val locs = locSpan(startLocn, location lex) (* Include brackets. *)
+                                val (labs, _, _) = SKIPS.getList (SYMBOLS.Comma, empty, lex) (fn () => let val (v, l) = getEntry() in (v, l, ()) end) ()
+                                val locs = LEX.locSpan (startLocn, LEX.location lex) (* Include brackets. *)
                                 val labelled = mkLabelledTree (labs, true (* always frozen *), locs)
-                                val () = getsym (SYMBOLS.RightCurly, lex);
+                                val () = SKIPS.getsym (SYMBOLS.RightCurly, lex);
                             in
                                 (labelled, locs)
                             end
@@ -1069,14 +1065,14 @@ struct
                 (* local declaration *)
                 |   LetSy =>
                     let
-                        val ()     = insymbol lex;
+                        val ()     = LEX.insymbol lex;
                         val newEnv = mkLocalFixEnv env
                         val decs   = decSequence (fsys ++ inSy, newEnv);
-                        val ()     = getsym (SYMBOLS.InSy, lex);
+                        val ()     = SKIPS.getsym (SYMBOLS.InSy, lex);
                         val exp    = expressionList (fsys ++ semicolonEndSy, SYMBOLS.Semicolon, newEnv);
-                        val locs   = locSpan(startLocn, location lex)
-                        val ()     = getsym (SYMBOLS.EndSy, lex);
-                        val ()     = skipon (fsys, empty, "End of let expression", lex);
+                        val locs   = LEX.locSpan (startLocn, LEX.location lex)
+                        val ()     = SKIPS.getsym (SYMBOLS.EndSy, lex);
+                        val ()     = SKIPS.skipon (fsys, empty, "End of let expression", lex);
                     in
                         (mkLocalDeclaration (decs, exp, locs, false) (* "let" rather than "local"*), locs)
                     end
@@ -1085,29 +1081,29 @@ struct
                 |   _ =>
                     let
                         val opThere = startSym = SYMBOLS.OpSy;
-                        val ()      = if opThere then insymbol lex else ();
-                        val sym     = sy lex;
-                        val symLoc  = location lex
+                        val ()      = if opThere then LEX.insymbol lex else ();
+                        val sym     = LEX.sy lex;
+                        val symLoc  = LEX.location lex
                     in
                         case sym of
                             HashSign (* Selector. *) =>
                             let
-                                val () = insymbol lex;
-                                val (lab, labLoc) = getLabel (fsys, lex)
-                                val locs = locSpan(startLocn, labLoc)
+                                val () = LEX.insymbol lex;
+                                val (lab, labLoc) = SKIPS.getLabel (fsys, lex)
+                                val locs = LEX.locSpan (startLocn, labLoc)
                             in
                                 (mkSelector(lab, locs), locs)
                             end
 
-                        |   StringConst => (getConstant mkString, locSpan(startLocn, symLoc))
+                        |   StringConst => (getConstant mkString, LEX.locSpan (startLocn, symLoc))
 
-                        |   IntegerConst => (getConstant mkInt, locSpan(startLocn, symLoc))
+                        |   IntegerConst => (getConstant mkInt, LEX.locSpan (startLocn, symLoc))
 
-                        |   RealConst => (getConstant mkReal, locSpan(startLocn, symLoc))
+                        |   RealConst => (getConstant mkReal, LEX.locSpan (startLocn, symLoc))
 
-                        |   WordConst => (getConstant mkWord, locSpan(startLocn, symLoc))
+                        |   WordConst => (getConstant mkWord, LEX.locSpan (startLocn, symLoc))
 
-                        |   CharConst => (getConstant mkChar, locSpan(startLocn, symLoc))
+                        |   CharConst => (getConstant mkChar, LEX.locSpan (startLocn, symLoc))
                         
                         |   _ =>
                             if sym inside variableSys 
@@ -1115,12 +1111,12 @@ struct
                             let
                                 val (ident, idLoc) = getLongNonInfix opThere variableSys fsys lex env
                             in
-                                (mkIdent (ident, idLoc), locSpan(startLocn, idLoc))
+                                (mkIdent (ident, idLoc), LEX.locSpan (startLocn, idLoc))
                             end
 
 
                             else   (* Expected something e.g. an identifier. *)
-                               (badsyms (SYMBOLS.Ident, lex); (emptyTree, symLoc))
+                               (SKIPS.badsyms (SYMBOLS.Ident, lex); (emptyTree, symLoc))
                     end
             end(* end atomicExpression *);
 
@@ -1131,20 +1127,20 @@ struct
                swallow all of the rest of the expression but they can appear
                within other keyword expressions or after "andalso" and "orelse". *)
             let
-                val sym = sy lex;
-                val startLocn = location lex
+                val sym = LEX.sy lex;
+                val startLocn = LEX.location lex
             in
                 (* if expression *)
                 case sym of
                     IfSy =>
                     let
-                        val () = insymbol lex;
+                        val () = LEX.insymbol lex;
                         val (test, _) = expression (fsys ++ thenStartExpressionSy) env;
-                        val () = getsym (SYMBOLS.ThenSy, lex);
+                        val () = SKIPS.getsym (SYMBOLS.ThenSy, lex);
                         val (thenPt, _) = expression (fsys ++ elseStartExpressionSy) env;
-                        val () = getsym (SYMBOLS.ElseSy, lex);
+                        val () = SKIPS.getsym (SYMBOLS.ElseSy, lex);
                         val (elsePt, elseLocn) = expression fsys env;
-                        val locs = locSpan(startLocn, elseLocn)
+                        val locs = LEX.locSpan (startLocn, elseLocn)
                     in
                         (mkCond (test, thenPt, elsePt, locs), locs)
                     end
@@ -1152,29 +1148,29 @@ struct
                 (* while expression *)
                 |   WhileSy =>
                     let
-                        val () = insymbol lex;
+                        val () = LEX.insymbol lex;
                         val (test, testLocn) = expression (fsys ++ doSy) env;
                      in
-                        if (sy lex) = SYMBOLS.DoSy
+                        if (LEX.sy lex) = SYMBOLS.DoSy
                         then
                             let
-                                val () = insymbol lex;
+                                val () = LEX.insymbol lex;
                                 val (doExp, doLocn) = expression fsys env
-                                val locs = locSpan(startLocn, doLocn)
+                                val locs = LEX.locSpan (startLocn, doLocn)
                             in
                                 (mkWhile (test, doExp, locs), locs)
                             end
-                        else (badsyms (SYMBOLS.DoSy, lex); (test, testLocn))
+                        else (SKIPS.badsyms (SYMBOLS.DoSy, lex); (test, testLocn))
                     end
 
                 (* case expression *)
                 |   CaseSy =>
                     let
-                        val () = insymbol lex;
+                        val () = LEX.insymbol lex;
                         val (exp, _) = expression (fsys ++ ofStartMatchSy) env;
-                        val () = getsym (SYMBOLS.OfSy, lex);
+                        val () = SKIPS.getsym (SYMBOLS.OfSy, lex);
                         val (m, matchLoc) = match (fsys ++ semicolon)
-                        val locs = locSpan(startLocn, matchLoc)
+                        val locs = LEX.locSpan (startLocn, matchLoc)
                     in
                         (mkCase (exp, m, locs, matchLoc), locs)
                     end
@@ -1182,9 +1178,9 @@ struct
                 (* raise exception *)
                 |   RaiseSy =>
                     let
-                        val () = insymbol lex;
+                        val () = LEX.insymbol lex;
                         val (exp, expLoc) = expression fsys env
-                        val locs = locSpan(startLocn, expLoc)
+                        val locs = LEX.locSpan (startLocn, expLoc)
                     in
                         (mkRaise (exp, locs), locs)
                     end
@@ -1192,9 +1188,9 @@ struct
                 (* fn expression *)
                 |   FnSy =>
                     let
-                        val () = insymbol lex;
+                        val () = LEX.insymbol lex;
                         val (m, matchLoc) = match (fsys ++ semicolon)
-                        val locs = locSpan(startLocn, matchLoc)
+                        val locs = LEX.locSpan (startLocn, matchLoc)
                     in
                         (mkFn (m, locs), locs)
                 end
@@ -1215,12 +1211,12 @@ struct
                 (* N.B. If the expression had been introduced by a keyword (e.g. if)
                    then the "else" part would have swallowed any "andalso". *)
             in
-                case sy lex of
+                case LEX.sy lex of
                     AndalsoSy =>
                     let
-                        val () = insymbol lex;
+                        val () = LEX.insymbol lex;
                         val (right, rightLoc) = parseAndalso fsys
-                        val locs = locSpan(firstLoc, rightLoc)
+                        val locs = LEX.locSpan (firstLoc, rightLoc)
                     in
                         (mkAndalso (first, right, locs), locs)
                     end
@@ -1232,12 +1228,12 @@ struct
            let
                 val (first, firstLoc) = parseAndalso (fsys ++ orelseSy);
            in
-                case sy lex of
+                case LEX.sy lex of
                     OrelseSy =>
                     let
-                        val () = insymbol lex;
+                        val () = LEX.insymbol lex;
                         val (right, rightLoc) = parseOrelse fsys
-                        val locs = locSpan(firstLoc, rightLoc)
+                        val locs = LEX.locSpan (firstLoc, rightLoc)
                     in
                         (mkOrelse (first, right, locs), locs)
                     end
@@ -1245,40 +1241,40 @@ struct
            end;
 
         in
-            skipon (startExpressionSys, fsys, "Expression", lex);
+            SKIPS.skipon (startExpressionSys, fsys, "Expression", lex);
 
-            if (sy lex) inside startExpressionSys
+            if (LEX.sy lex) inside startExpressionSys
             then
             let
                 val (exp, expLoc) = parseOrelse (fsys ++ handleSy);
             in
-                case sy lex of
+                case LEX.sy lex of
                     HandleSy =>
                     let
-                        val () = insymbol lex; (* Remove "handle" *)
+                        val () = LEX.insymbol lex; (* Remove "handle" *)
                         val (m, mLoc) = match fsys
-                        val locs = locSpan(expLoc, mLoc)
+                        val locs = LEX.locSpan (expLoc, mLoc)
                     in
                         (mkHandleTree (exp, m, locs, mLoc), locs)
                     end
                 |   _ => (exp, expLoc)
             end
-            else (emptyTree (* No expression *), location lex)
+            else (emptyTree (* No expression *), LEX.location lex)
 
         end; (* expression *)
 
     in
         (* One declaration. "decOnly" is true if the derived form exp => val it = exp is not allowed here. *)
-        if decOnly orelse (sy lex) inside startDecSys
+        if decOnly orelse (LEX.sy lex) inside startDecSys
         then
         let
-            val sym = sy lex;
-            val startLocn = location lex
+            val sym = LEX.sy lex;
+            val startLocn = LEX.location lex
         in
             case sym of
                 ValSy =>
                 let
-                    val () = insymbol lex;
+                    val () = LEX.insymbol lex;
                     (* Create two different scopes, for explicitly declared
                        type variables and those implicitly declared. *)
                     val implicitTvars = makeTypeVarEnv()
@@ -1301,27 +1297,27 @@ struct
                     (* Processes a value binding. *)
                     (* We check for qualified names in the second pass *)
                     fun valB(fsys, isRec) =
-                        case sy lex of
-                            RecSy => (insymbol lex; valB(fsys, true))
+                        case LEX.sy lex of
+                            RecSy => (LEX.insymbol lex; valB(fsys, true))
                     |   _ =>
                         let
                             (* Pattern *)
                             val (vars, varLoc) = pattern (fsys ++ equalsSign) lex newEnv
                             (* = *)
-                            val () = getsym (SYMBOLS.EqualsSign, lex);
+                            val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex);
                             (* expression *)
                             val (exp, expLoc) = expression fsys newEnv;
                             (* Other declarations. *)
                             val (tail, tailLocn) =
-                                case sy lex of 
-                                    AndSy => (insymbol lex; valB(fsys, isRec))
+                                case LEX.sy lex of 
+                                    AndSy => (LEX.insymbol lex; valB(fsys, isRec))
                                 |   _ => ([], expLoc)
                         in
-                             (mkValBinding (vars, exp, isRec, locSpan(varLoc, expLoc)) :: tail, tailLocn)
+                             (mkValBinding (vars, exp, isRec, LEX.locSpan (varLoc, expLoc)) :: tail, tailLocn)
                         end
 
                     val (bindings, bindLocns) = valB (fsys ++ andSy, false)
-                    val fullLocn = locSpan(startLocn, bindLocns)
+                    val fullLocn = LEX.locSpan (startLocn, bindLocns)
                 in
                     (mkValDeclaration (bindings,
                         {lookup= #lookup explicitTvars, apply= #apply explicitTvars},
@@ -1332,7 +1328,7 @@ struct
 
             |   FunSy =>
                 let
-                    val () = insymbol lex;
+                    val () = LEX.insymbol lex;
                     (* Create two different scopes, for explicitly declared
                        type variables and those implicitly declared. *)
                     val implicitTvars = makeTypeVarEnv()
@@ -1367,13 +1363,13 @@ struct
                                     (
                                         if prevName = funName
                                         then ()
-                                        else errorMessage (lex, location lex,
+                                        else LEX.errorMessage (lex, LEX.location lex,
                                                 "This clause defines function ``" ^ funName ^
                                                 "'' but previous clause(s) defined ``" ^
                                                 prevName ^ "''");
                                         if prevCount = argCount
                                         then ()
-                                        else errorMessage (lex, location lex,
+                                        else LEX.errorMessage (lex, LEX.location lex,
                                                 "This clause has " ^ Int.toString argCount ^
                                                 " arguments but previous clause(s) had " ^
                                                 Int.toString prevCount)
@@ -1384,24 +1380,24 @@ struct
                                to confuse fun declarations with matches and use a =>
                                here.  Report the error but swallow the =>. *)
                             val () =
-                                case sy lex of
-                                    EqualsSign => insymbol lex
+                                case LEX.sy lex of
+                                    EqualsSign => LEX.insymbol lex
                                 |   _ =>
                                     (
-                                        notfound ("=", lex);
-                                        case sy lex of ThickArrow => insymbol lex | _ => ()
+                                        SKIPS.notfound ("=", lex);
+                                        case LEX.sy lex of ThickArrow => LEX.insymbol lex | _ => ()
                                     )
                             (* expression *)
                             val (exp, expLoc)  = expression (fsys ++ verticalBar) newEnv;
-                            val bind = mkClause (funPattern, exp, locSpan(varLoc, expLoc));
+                            val bind = mkClause (funPattern, exp, LEX.locSpan (varLoc, expLoc));
                             (* Followed by a vertical bar and another binding ? *)
                             val (rest, endLoc) =
-                                case sy lex of
+                                case LEX.sy lex of
                                     VerticalBar =>
-                                        (insymbol lex; bindings(SOME(funName, argCount)))
+                                        (LEX.insymbol lex; bindings(SOME(funName, argCount)))
                                 |   _ => ([], expLoc)
                         in
-                            (bind :: rest, locSpan(varLoc, endLoc))
+                            (bind :: rest, LEX.locSpan (varLoc, endLoc))
                         end;
                     
                         val (bindings, bindLocns) = bindings NONE
@@ -1410,7 +1406,7 @@ struct
                     end (* funB *);
 
                     val (bindings, bindLocns) = andBindings(fsys, funB);
-                    val fullLocn = locSpan(startLocn, bindLocns)
+                    val fullLocn = LEX.locSpan (startLocn, bindLocns)
                 in
                     (mkFunDeclaration (bindings,
                         {lookup= #lookup explicitTvars, apply= #apply explicitTvars},
@@ -1421,9 +1417,9 @@ struct
 
             |   TypeSy =>
                 let
-                    val () = insymbol lex;
+                    val () = LEX.insymbol lex;
                     val (bindings, bindLocns) = andBindings(fsys, typeBinding(false, false, env))
-                    val fullLocn = locSpan(startLocn, bindLocns)
+                    val fullLocn = LEX.locSpan (startLocn, bindLocns)
                 in
                     (mkTypeDeclaration (bindings, fullLocn), fullLocn)
                 end
@@ -1432,85 +1428,85 @@ struct
 
             |   AbstypeSy =>
                 let
-                    val ()         = insymbol lex;
+                    val ()         = LEX.insymbol lex;
                     val (tb, _) = 
                         andBindings (fsys ++ withTypeWithSy, datatypeBinding false);
                 
                     val (withtypes, _) =
-                        case sy lex of
+                        case LEX.sy lex of
                             WithtypeSy =>
                             (
-                                insymbol lex;
+                                LEX.insymbol lex;
                                 andBindings (fsys ++ withSy, typeBinding(false, false, env))
                             )
                         |   _ => ([], startLocn);
                
-                    val ()  = getsym (SYMBOLS.WithSy, lex);
+                    val ()  = SKIPS.getsym (SYMBOLS.WithSy, lex);
                     val decs = decSequence (fsys ++ endSy, env);
-                    val fullLocn = locSpan(startLocn, location lex)
+                    val fullLocn = LEX.locSpan (startLocn, LEX.location lex)
                 in
-                    getsym (SYMBOLS.EndSy, lex);
+                    SKIPS.getsym (SYMBOLS.EndSy, lex);
                     (mkAbstypeDeclaration (tb, withtypes, decs, fullLocn), fullLocn)
                 end
 
             |   ExceptionSy =>
                 let
                     (* Declares exception identifiers and their types. *)
-                    val () = insymbol lex;
+                    val () = LEX.insymbol lex;
 
                     (* Get an exception binding. Qualified names prohibited. *)
                     fun exceptionBinding fsys =
                     let
                         (* Allow an "op" here but don't produce a warning if it's absent. *)
-                        val () = if (sy lex) = SYMBOLS.OpSy then insymbol lex else ()
+                        val () = if (LEX.sy lex) = SYMBOLS.OpSy then LEX.insymbol lex else ()
                         (* First the identifier. *)
                         val (iden, idLoc) = getShortId (variableSys, fsys ++ ofEqualsSignSy, lex);
                     in
                         (* Either   excon of ty   or   excon = excon' *)
-                        case sy lex of
+                        case LEX.sy lex of
                             OfSy =>
                             let
-                                val () = insymbol lex
+                                val () = LEX.insymbol lex
                                 val (theType, typeLocn) =
                                     parseType (fsys ++ equalsSign, lex, {lookupTvar= #lookupTvar env})
-                                val fullLoc = locSpan(idLoc, typeLocn)
+                                val fullLoc = LEX.locSpan (idLoc, typeLocn)
                             in
                                 (mkExBinding (iden, emptyTree, SOME theType, idLoc, fullLoc), fullLoc)
                             end
                         |   EqualsSign =>
                             let (* Must be   = excon' *)
-                                val () = insymbol lex
+                                val () = LEX.insymbol lex
                                 (* Allow an "op" here but don't produce a warning if it's absent. *)
-                                val () = if (sy lex) = SYMBOLS.OpSy then insymbol lex else ()
+                                val () = if (LEX.sy lex) = SYMBOLS.OpSy then LEX.insymbol lex else ()
                                 val (oldIden, oldIdenLoc) = getLongId (variableSys, fsys, lex);
-                                val fullLoc = locSpan(idLoc, oldIdenLoc)
+                                val fullLoc = LEX.locSpan (idLoc, oldIdenLoc)
                             in
                                 (mkExBinding (iden, mkIdent(oldIden, oldIdenLoc), NONE, idLoc, fullLoc), fullLoc)
                             end
                         |   _ => (mkExBinding (iden, emptyTree, NONE, idLoc, idLoc), idLoc)
                     end;
                     val (bindings, bindLocns) = andBindings(fsys, exceptionBinding)
-                    val fullLocn = locSpan(startLocn, bindLocns)
+                    val fullLocn = LEX.locSpan (startLocn, bindLocns)
                 in
                     (mkExDeclaration (bindings, fullLocn), fullLocn)
                 end
 
             |   LocalSy =>
                 let
-                    val ()      = insymbol lex;
+                    val ()      = LEX.insymbol lex;
                     (* Infix status have this scope. Type-variables have the scope of the enclosing val or fun. *)
                     val newEnv  = mkLocalFixEnv env
                     (* The local declaration *)
                     val ins     = decSequence (fsys ++ inEndSy, newEnv);
-                    val ()      = getsym (SYMBOLS.InSy, lex);
+                    val ()      = SKIPS.getsym (SYMBOLS.InSy, lex);
                     (* Decs are added to both the local and surrounding environment. *)
                     val resultEnv = mkLocalBodyFixEnv newEnv enterFix
 
                     val body    = decSequence (fsys ++ endSy, resultEnv)
                 
-                    val locs = locSpan(startLocn, location lex)
+                    val locs = LEX.locSpan (startLocn, LEX.location lex)
                 in
-                    getsym (SYMBOLS.EndSy, lex);
+                    SKIPS.getsym (SYMBOLS.EndSy, lex);
                     (mkLocalDeclaration (ins, body, locs, true), (*"local" rather than "let"*) locs)
                 end
 
@@ -1521,9 +1517,9 @@ struct
             (* "open" declaration - qualified names allowed *)
             |   OpenSy =>
                 let
-                    val () = insymbol lex
+                    val () = LEX.insymbol lex
                     fun vars endLoc =
-                    if (sy lex) inside variableSys
+                    if (LEX.sy lex) inside variableSys
                     then
                     let
                         val (id, idLoc) = getLongId (variableSys, fsys, lex);
@@ -1533,16 +1529,16 @@ struct
                     end
                     else ([], endLoc);
                 in
-                    if (sy lex) inside variableSys
+                    if (LEX.sy lex) inside variableSys
                     then
                     let
                         val (vars, varLocns) = vars startLocn
-                        val fullLocn = locSpan(startLocn, varLocns)
+                        val fullLocn = LEX.locSpan (startLocn, varLocns)
                     in
                         (mkOpenTree(vars, fullLocn), fullLocn)
                     end
                     else (* Identifier missing. *)
-                        (badsyms (SYMBOLS.Ident, lex); (emptyTree, startLocn))
+                        (SKIPS.badsyms (SYMBOLS.Ident, lex); (emptyTree, startLocn))
               end
 
             |    _ => (emptyTree, startLocn) (* Empty declaration. *)
@@ -1558,7 +1554,7 @@ struct
                             lookupTvar = #lookupTvar newTvars};
             val (exp, expLoc) = expression fsys newEnv
         in
-            (mkValDeclaration ([mkValBinding (mkIdent ("it", nullLocation), exp, false, expLoc)],
+            (mkValDeclaration ([mkValBinding (mkIdent ("it", LEX.nullLocation), exp, false, expLoc)],
                 {lookup= #lookup explicitTvars,apply= #apply explicitTvars},
                 {lookup= #lookup newTvars,apply= #apply newTvars},
                 expLoc), expLoc)
@@ -1569,19 +1565,19 @@ struct
     fun parseSignature (fsys : symset) (lex : lexan) env : sigs * location =
     let  (* May be either a signature name or a sig spec .. spec end seq
           followed by multiple  where type  expressions. *)
-        val () = skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
+        val () = SKIPS.skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
 
-        val startLocn = location lex
+        val startLocn = LEX.location lex
 
         val sigexp : sigs * location =
-            case sy lex of
+            case LEX.sy lex of
                 SigSy =>
                 let (* sig *)
-                    val () = insymbol lex
+                    val () = LEX.insymbol lex
                     val sigs = signatureSpec (fsys ++ endSy ++ whereSy ++ semicolon) lex env
-                    val locs = locSpan(startLocn, location lex)
+                    val locs = LEX.locSpan (startLocn, LEX.location lex)
                 in
-                    getsym (SYMBOLS.EndSy, lex);
+                    SKIPS.getsym (SYMBOLS.EndSy, lex);
                     (mkSig (sigs, locs), locs)
                 end
 
@@ -1592,48 +1588,48 @@ struct
                     (mkSigIdent ident, locs)
                 end
 
-            |   _ => (* Only if parse error which will have been reported in skipon. *)
-                (mkSigIdent("error", location lex), location lex);
+            |   _ => (* Only if parse error which will have been reported in SKIPS.skipon. *)
+                (mkSigIdent("error", LEX.location lex), LEX.location lex);
 
         fun getWhereTypes(sigexp, sigLoc) =
         let
             (* This is similar to a type binding but with the possibility
                that the type is a longtycon. *)
-            val () = getsym(SYMBOLS.TypeSy, lex);
-            val newTVenv  = searchList ();
+            val () = SKIPS.getsym(SYMBOLS.TypeSy, lex);
+            val newTVenv  = UTILITIES.searchList ();
             val typeVars = getTypeVars TVCreateBound newTVenv
             val (typeName, nameLoc)  = getLongId (ident, fsys ++ equalsSign, lex);
             val typeVarEnv = genTypeVarEnv newTVenv
-            val () = getsym (SYMBOLS.EqualsSign, lex);
+            val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex);
             (* Followed by a type or a sequence of constructors *)
-            val () = skipon (startTypeSys, fsys, "type", lex);
+            val () = SKIPS.skipon (startTypeSys, fsys, "type", lex);
             val (theType, typeLoc) = parseType (fsys ++ whereSy ++ andSy, lex, typeVarEnv)
             val constrainedSig =
                 (mkWhereType(sigexp, typeVars, typeName, theType, nameLoc),
-                 locSpan(sigLoc, typeLoc))
+                 LEX.locSpan (sigLoc, typeLoc))
         in
-            case sy lex of
+            case LEX.sy lex of
                 WhereSy => (* Recurse to handle any other wheres. *)
-                    (insymbol lex; getWhereTypes constrainedSig)
+                    (LEX.insymbol lex; getWhereTypes constrainedSig)
 
             |   AndSy =>
                 (
-                    insymbol lex;
+                    LEX.insymbol lex;
                     (* There are two possibilities here.  It may be the start of another
                        type abbreviation or it may be the start of another signature. *)
-                    case sy lex of
+                    case LEX.sy lex of
                         TypeSy => getWhereTypes constrainedSig
                     |   _ => (* Push the "and" back into the lexer so it can be picked out later. *)
                     (
-                        pushBackSymbol(lex, SYMBOLS.AndSy);
+                        LEX.pushBackSymbol(lex, SYMBOLS.AndSy);
                         constrainedSig
                     )
                 )
             |   _ => constrainedSig
         end
     in
-        case sy lex of
-            WhereSy => (insymbol lex; getWhereTypes sigexp)
+        case LEX.sy lex of
+            WhereSy => (LEX.insymbol lex; getWhereTypes sigexp)
         |   _ => sigexp
     end (* parseSignature *)
 
@@ -1644,13 +1640,13 @@ struct
 
    fun parseSigEntries () : specs list =
    let
-       val () = skipon (fsys ++ semicolonStartSigSys, fsys, "Signature", lex)
-       val sym = sy lex and startLocn = location lex
+       val () = SKIPS.skipon (fsys ++ semicolonStartSigSys, fsys, "Signature", lex)
+       val sym = LEX.sy lex and startLocn = LEX.location lex
        val thisSig =
        case sym of
             DatatypeSy =>
             let
-               val startLocn = location lex
+               val startLocn = LEX.location lex
                val sys = fsys ++ startSigEndSy
                val newenv =
                    {enterFix = #enterFix env, lookupFix = #lookupFix env,
@@ -1659,7 +1655,7 @@ struct
                  lookupTvar =
                      fn name =>
                         (
-                        errorMessage (lex, location lex, 
+                        LEX.errorMessage (lex, LEX.location lex,
                                     name ^  " has not been declared in type declaration");
                         BadType
                         )
@@ -1674,81 +1670,81 @@ struct
                 abbreviations) are allowed.  For the moment allow them. *)
             let
                 val sys = fsys ++ startSigEndSy
-                val () = insymbol lex;
+                val () = LEX.insymbol lex;
                 val (bindings, bindLocns) = andBindings(sys, typeBinding(true, false, env))
             in
-                [mkCoreType (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
+                [mkCoreType (mkTypeDeclaration(bindings, bindLocns), LEX.locSpan (startLocn, bindLocns))]
             end
 
          |  EqtypeSy =>
             let
                 val sys = fsys ++ startSigEndSy
-                val () = insymbol lex;
+                val () = LEX.insymbol lex;
                 val (bindings, bindLocns) = andBindings(sys, typeBinding(true, true, env))
             in
-                [mkCoreType (mkTypeDeclaration(bindings, bindLocns), locSpan(startLocn, bindLocns))]
+                [mkCoreType (mkTypeDeclaration(bindings, bindLocns), LEX.locSpan (startLocn, bindLocns))]
             end
 
          |  ValSy =>
             let
-                val () = insymbol lex
+                val () = LEX.insymbol lex
                 fun doVal () =
                 let
                     val idAndLoc as (_, idLoc)  = getShortId (declarableVarSys, fsys ++ colon, lex);
-                    val () = getsym (SYMBOLS.Colon, lex);
+                    val () = SKIPS.getsym (SYMBOLS.Colon, lex);
                     (* Type variables are local to the val spec. *)
                     val signatureTvars = makeTypeVarEnv()
                     val (ty, tyLoc)  = 
                         parseType (fsys ++ startSigEndAndSy, lex, 
                             {lookupTvar = #lookupTvar signatureTvars})
                     val _ = #apply signatureTvars(fn (_, tVar) => setParseTypeVar(tVar, NONE, 1))
-                    val locs = locSpan(idLoc, tyLoc)
+                    val locs = LEX.locSpan (idLoc, tyLoc)
                in
                     (mkValSig (idAndLoc, ty, locs), locs, ())
                end
            in
-             #1 (getList (SYMBOLS.AndSy, empty, lex) doVal ())
+             #1 (SKIPS.getList (SYMBOLS.AndSy, empty, lex) doVal ())
            end (* val *)
 
         |   ExceptionSy =>
             let(* exception id1 of ty1 and _ and idn of tyn *)
-                val () = insymbol lex
+                val () = LEX.insymbol lex
              
                 fun doEx () =
                 let
                     val idAndLoc as (_, idLoc)  = getShortId (variableSys, fsys ++ ofSy, lex)
                     val (ty, locs) =
-                        case sy lex of
+                        case LEX.sy lex of
                             OfSy =>
                             let
-                                val () = insymbol lex
+                                val () = LEX.insymbol lex
                                 val (types, tyLoc) =
                                     parseType (fsys ++ startSigEndAndSy, lex, {lookupTvar = lookupTvar})
                             in
-                                (SOME types, locSpan(idLoc, tyLoc))
+                                (SOME types, LEX.locSpan (idLoc, tyLoc))
                             end
                         |   _ => (* Nullary *) (NONE, idLoc);
                in
                     (mkExSig (idAndLoc, ty, locs), locs, ())
                end
             in
-                #1 (getList (SYMBOLS.AndSy, empty, lex) doEx ())
+                #1 (SKIPS.getList (SYMBOLS.AndSy, empty, lex) doEx ())
             end (* exception *)
            
          |  StructureSy =>
             let
-                val () = insymbol lex
+                val () = LEX.insymbol lex
 
                 fun doStructure () =
                 let
                     val idAndLoc as (_, idLoc)  = getShortId (variableSys, empty, lex)
-                    val () = getsym (SYMBOLS.Colon, lex)
+                    val () = SKIPS.getsym (SYMBOLS.Colon, lex)
                     val (sgn, sgnLoc) = parseSignature (fsys ++ startSigEndAndSy) lex env
-                    val locs = locSpan(idLoc, sgnLoc)
+                    val locs = LEX.locSpan (idLoc, sgnLoc)
                 in
                     (mkStructureSigBinding (idAndLoc, (sgn, false, sgnLoc), locs), locs, ())
                 end
-                val (a, b, _) = getList(SYMBOLS.AndSy, empty, lex) doStructure ()
+                val (a, b, _) = SKIPS.getList(SYMBOLS.AndSy, empty, lex) doStructure ()
             in
                 [mkStructureSig(a, b)]
             end
@@ -1766,15 +1762,15 @@ struct
                    identifiers.  That is rather more general than the syntax
                    allows and perhaps we should check that the first signature
                    was simply an identifier. *)
-                val () = insymbol lex
+                val () = LEX.insymbol lex
                 val () =
-                    skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
+                    SKIPS.skipon (declarableVarSys ++ sigSy, fsys, "Start of signature", lex)
 
                 val (firstSig, firstLoc) =
                     parseSignature (fsys ++ startSigEndSy ++ declarableVarSys) lex env
 
                 fun sigids locs =
-                    case sy lex of
+                    case LEX.sy lex of
                         Ident =>
                         let
                             val nameLoc as (_, loc) = getShortId (declarableVarSys, fsys, lex)
@@ -1786,14 +1782,14 @@ struct
 
                 val (otherSigs, finalLoc) = sigids firstLoc
             in
-                [mkInclude (firstSig :: otherSigs, locSpan(startLocn, finalLoc))]
+                [mkInclude (firstSig :: otherSigs, LEX.locSpan (startLocn, finalLoc))]
             end
 
          |  SharingSy =>
             let (* sharing *)
-                val startLocn = location lex
-                val () = insymbol lex
-                val isType = case sy lex of TypeSy => (insymbol lex; true) | _ => false
+                val startLocn = LEX.location lex
+                val () = LEX.insymbol lex
+                val isType = case LEX.sy lex of TypeSy => (LEX.insymbol lex; true) | _ => false
                 fun getShare () =
                 let
                     val (id, loc) =  getLongId (declarableVarSys, fsys ++ rightParenEqualsSignSy, lex)
@@ -1802,9 +1798,9 @@ struct
                     ((id, loc), loc, ())
                 end
                 val (shares, _, _) = getShare ()
-                val () = getsym (SYMBOLS.EqualsSign, lex)
-                val (shareRest, shareLocn, _) = getList (SYMBOLS.EqualsSign, ident, lex) getShare ()
-                val fullLoc = locSpan(startLocn, shareLocn)
+                val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex)
+                val (shareRest, shareLocn, _) = SKIPS.getList (SYMBOLS.EqualsSign, ident, lex) getShare ()
+                val fullLoc = LEX.locSpan (startLocn, shareLocn)
                 val share = mkSharing (isType, shares :: shareRest, fullLoc)
             in
                 [share]
@@ -1814,9 +1810,9 @@ struct
            (* end of parse of thisSig *)
              
         (* continue until the `end' *)
-        val () = case sy lex of Semicolon => insymbol lex | _ => ()
+        val () = case LEX.sy lex of Semicolon => LEX.insymbol lex | _ => ()
     in 
-        if (sy lex) inside semicolonStartSigSys
+        if (LEX.sy lex) inside semicolonStartSigSys
         then thisSig @ parseSigEntries ()
         else thisSig
     end (* parseSigEntries *)
@@ -1827,21 +1823,21 @@ struct
 
     fun signatureDec (fsys : symset) (lex : lexan) env : topdec =
     let
-        val startLocn = location lex
-        val () = insymbol lex
+        val startLocn = LEX.location lex
+        val () = LEX.insymbol lex
         fun doSigDec () =
         let
             val idAndLoc as (_, idLoc) = getShortId (variableSys, empty, lex);
-            val () = getsym (SYMBOLS.EqualsSign, lex)
+            val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex)
             val (sgn, sigLoc) = parseSignature (fsys ++ endAndSy) lex env
-            val locs = locSpan(idLoc, sigLoc)
+            val locs = LEX.locSpan (idLoc, sigLoc)
         in
             (mkSignatureBinding (idAndLoc, sgn, locs), locs, ())
         end
         
-        val (sigs, sigLoc, _) = getList (SYMBOLS.AndSy, empty, lex) doSigDec ()
+        val (sigs, sigLoc, _) = SKIPS.getList (SYMBOLS.AndSy, empty, lex) doSigDec ()
     in
-        mkSignatureDec (sigs, locSpan(startLocn, sigLoc))
+        mkSignatureDec (sigs, LEX.locSpan (startLocn, sigLoc))
     end
        
     
@@ -1850,38 +1846,38 @@ struct
       (* Series of declarations inside struct...end or (...) in functor
          application. *)
 
-    val () = skipon (structSy ++ declarableVarLetSy,
+    val () = SKIPS.skipon (structSy ++ declarableVarLetSy,
                       fsys, "struct or functor application", lex);
     
     val fsysPcolon = fsys ++ colon ++ colonGt
-    val startLocn = location lex
+    val startLocn = LEX.location lex
 
     val strExp =
-        case sy lex of
+        case LEX.sy lex of
             StructSy =>
             let(* It's a new structure *)
-                val () = insymbol lex
+                val () = LEX.insymbol lex
                 (* Infix declarations are local to struct ... end. *)
                 val structEnv = mkLocalFixEnv env
                 val str = strDec (fsysPcolon ++ endSy) lex structEnv
-                val locs = locSpan(startLocn, location lex)
-                val () = getsym (SYMBOLS.EndSy, lex)
+                val locs = LEX.locSpan (startLocn, LEX.location lex)
+                val () = SKIPS.getsym (SYMBOLS.EndSy, lex)
             in
                 (mkStruct(str, locs), locs)
             end
     
         |   LetSy =>
             let
-                val () = insymbol lex
+                val () = LEX.insymbol lex
                 (* Fixity is local. *)
                 val newEnv = mkLocalFixEnv env
                 (* The local declaration *)
                 val ins  = strDec (fsysPcolon ++ inEndSy) lex newEnv
-                val () = getsym (SYMBOLS.InSy, lex)
+                val () = SKIPS.getsym (SYMBOLS.InSy, lex)
                 val body = #1 (structVal (fsysPcolon ++ endSy) lex newEnv)
-                val endLoc = location lex
-                val () = getsym (SYMBOLS.EndSy, lex)
-                val locs = locSpan(startLocn, endLoc)
+                val endLoc = LEX.location lex
+                val () = SKIPS.getsym (SYMBOLS.EndSy, lex)
+                val locs = LEX.locSpan (startLocn, endLoc)
             in
                 (mkLetdec (ins, body, locs), locs)
             end
@@ -1889,38 +1885,38 @@ struct
         |   _ =>
             let (* Either a structure path or a functor application *)
                 val (iden, idLoc) = getLongId (declarableVarSys, fsysPcolon ++ leftParen, lex);
-                val startLoc = location lex
+                val startLoc = LEX.location lex
             in
-                case sy lex of
+                case LEX.sy lex of
                     LeftParen =>
                     let (* functor application *)
-                        val () = insymbol lex
+                        val () = LEX.insymbol lex
                         (* Functor names must not be qualified. *)
-                        val () = checkForDots (iden, lex, idLoc);
+                        val () = UTILITIES.checkForDots (iden, lex, idLoc);
                         val parameter =
-                            case sy lex of
+                            case LEX.sy lex of
                                 RightParen => (* Empty parameter list *)
-                                    mkStruct([], locSpan(startLoc, location lex))
+                                    mkStruct([], LEX.locSpan (startLoc, LEX.location lex))
                             |   _ =>
                                 let
                                     val tsys = fsysPcolon ++ rightParenCommaSy
                                 in
                                     (* May be either a structure value or a sequence
                                        of declarations. *)
-                                    if (sy lex) inside startDecStructureSy
+                                    if (LEX.sy lex) inside startDecStructureSy
                                     then (* implied struct...end *)
                                     let
                                         val structEnv = mkLocalFixEnv env
                                         val str = strDec tsys lex structEnv
-                                        val locs = locSpan(startLoc, location lex)
+                                        val locs = LEX.locSpan (startLoc, LEX.location lex)
                                     in
                                         mkStruct(str, locs)
                                     end
                                     else #1 (structVal tsys lex env)
                                 end
-                        val endPos = location lex
-                        val () = getsym (SYMBOLS.RightParen, lex)
-                        val locs = locSpan(idLoc, endPos)
+                        val endPos = LEX.location lex
+                        val () = SKIPS.getsym (SYMBOLS.RightParen, lex)
+                        val locs = LEX.locSpan (idLoc, endPos)
                     in
                         (mkFunctorAppl (iden, parameter, idLoc, locs), locs)
                     end
@@ -1930,21 +1926,21 @@ struct
 
         (* We may have one or more constraints. *)
         fun doConstraints (strExp, strExpLoc) =
-            case sy lex of
+            case LEX.sy lex of
                 Colon =>
                 let
-                    val () = insymbol lex
+                    val () = LEX.insymbol lex
                     val (sign, sigLoc) = parseSignature fsysPcolon lex env
                 in
-                    doConstraints(mkSigConstraint(strExp, sign, false, sigLoc), locSpan(strExpLoc, sigLoc))
+                    doConstraints(mkSigConstraint(strExp, sign, false, sigLoc), LEX.locSpan (strExpLoc, sigLoc))
                 end
 
             |   ColonGt =>
                 let
-                    val () = insymbol lex
+                    val () = LEX.insymbol lex
                     val (sign, sigLoc) = parseSignature fsysPcolon lex env
                 in
-                    doConstraints(mkSigConstraint(strExp, sign, true, sigLoc), locSpan(strExpLoc, sigLoc))
+                    doConstraints(mkSigConstraint(strExp, sign, true, sigLoc), LEX.locSpan (strExpLoc, sigLoc))
                 end
 
             |   _ => (strExp, strExpLoc)
@@ -1954,12 +1950,12 @@ struct
 
     and structureDec (fsys : symset) (lex : lexan) (env as {enterFix, ...}) : structDec =
     let
-        val startLocn = location lex
+        val startLocn = LEX.location lex
     in
-        case sy lex of
+        case LEX.sy lex of
             StructureSy =>
             let
-                val () = insymbol lex
+                val () = LEX.insymbol lex
 
                 fun doStrDec () =
                 let (* Read strId <<: sig>> = str *)
@@ -1967,50 +1963,50 @@ struct
                     val idAndLoc as (_, idLoc) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
                     (* Next the signature if there is one. *)
                     val sgn =
-                        case sy lex of
+                        case LEX.sy lex of
                             Colon =>
                             let
-                                val () = insymbol lex
+                                val () = LEX.insymbol lex
                                 val (sign, sigLoc) = parseSignature (fsys ++ equalsSign) lex env
                             in
                                 SOME (sign, false, sigLoc)
                             end
                         |   ColonGt =>
                             let
-                                val () = insymbol lex
+                                val () = LEX.insymbol lex
                                 val (sign, sigLoc) = parseSignature (fsys ++ equalsSign) lex env
                             in
                                 SOME (sign, true, sigLoc)
                             end
                         |   _ => NONE
                     (* Now the equals sign *)
-                    val () = getsym (SYMBOLS.EqualsSign, lex)
+                    val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex)
                     val (strVal, strLoc) = structVal fsys lex env
-                    val locs = locSpan(idLoc, strLoc)
+                    val locs = LEX.locSpan (idLoc, strLoc)
                 in
                     (* And finally the structure value. *)
                     (mkStructureBinding (idAndLoc, sgn, strVal, locs), locs, ())
                 end
-                val (strs, strLocs, _) = getList (SYMBOLS.AndSy, structSy, lex) doStrDec ()
+                val (strs, strLocs, _) = SKIPS.getList (SYMBOLS.AndSy, structSy, lex) doStrDec ()
             in  
-                mkStructureDec (strs, locSpan(startLocn, strLocs))
+                mkStructureDec (strs, LEX.locSpan (startLocn, strLocs))
             end
 
         |   _ => 
             let
-                val () = getsym (SYMBOLS.LocalSy, lex)
-                val startLoc = location lex
+                val () = SKIPS.getsym (SYMBOLS.LocalSy, lex)
+                val startLoc = LEX.location lex
                 val newEnv  = mkLocalFixEnv env
                 (* The local declaration *)
                 val ins = strDec (fsys ++ inEndSy) lex newEnv
-                val () = getsym (SYMBOLS.InSy, lex)
+                val () = SKIPS.getsym (SYMBOLS.InSy, lex)
                 (* Decs are added to both the local and surrounding environment. *)
                 val resultEnv = mkLocalBodyFixEnv newEnv enterFix
                 val body = strDec (fsys ++ endSy) lex resultEnv
-                val endLoc = location lex
-                val () = getsym (SYMBOLS.EndSy, lex)
+                val endLoc = LEX.location lex
+                val () = SKIPS.getsym (SYMBOLS.EndSy, lex)
             in
-                mkLocaldec (ins, body, locSpan(startLoc, endLoc))
+                mkLocaldec (ins, body, LEX.locSpan (startLoc, endLoc))
             end
 
     end (* end of structureDec *)
@@ -2018,37 +2014,37 @@ struct
     (* Functor declarations. *)
     and functorDec (fsys : symset) (lex : lexan) env : topdec =
     let
-        val startLocn = location lex
-        val () = insymbol lex; (* remove ``functor'' *)
+        val startLocn = LEX.location lex
+        val () = LEX.insymbol lex; (* remove ``functor'' *)
 
         fun doFunctDec () : functorBind * location * unit =
         let (* Read fncId (<<paramSpec>> ) <<: sig>> = str *)
             (* First the identifier *)
             val (strId, idLocn) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
-            val () = getsym (SYMBOLS.LeftParen, lex);
+            val () = SKIPS.getsym (SYMBOLS.LeftParen, lex);
             (* Now the parameters *)
             val tsys = fsys ++ rightParenCommaSy;
 
             val parameter = (* empty | name:sigexp | spec *)
-                if (sy lex) = SYMBOLS.RightParen
+                if (LEX.sy lex) = SYMBOLS.RightParen
                     (* empty *)
-                then mkFormalArg ("", mkSig([], location lex))
+                then mkFormalArg ("", mkSig([], LEX.location lex))
             
-                else if (sy lex) inside startSigSys
+                else if (LEX.sy lex) inside startSigSys
                 (* spec *)
                 then
                 let
-                    val startLocn = location lex
+                    val startLocn = LEX.location lex
                     val sigs = signatureSpec tsys lex env
                 in
-                    mkFormalArg ("", mkSig (sigs, locSpan(startLocn, location lex)))
+                    mkFormalArg ("", mkSig (sigs, LEX.locSpan (startLocn, LEX.location lex)))
                 end
          
                 (* name : sigexp *)
                 else
                 let
                     val (strId, _) = getShortId (declarableVarSys, tsys ++ colon, lex);
-                    val () = getsym (SYMBOLS.Colon, lex)
+                    val () = SKIPS.getsym (SYMBOLS.Colon, lex)
  
                     (* Next the signature. *)
                     val (sgn, _) = parseSignature (tsys ++ sharingSy) lex env
@@ -2056,21 +2052,21 @@ struct
                     mkFormalArg (strId, sgn)
                 end (* parameter *)
 
-            val () = getsym (SYMBOLS.RightParen, lex)
+            val () = SKIPS.getsym (SYMBOLS.RightParen, lex)
        
             (* Next the signature if there is one. *)       
             val sigOpt =
-                case sy lex of
+                case LEX.sy lex of
                     Colon =>
                     let
-                        val () = insymbol lex
+                        val () = LEX.insymbol lex
                         val (sign, sigLoc) = parseSignature (fsys ++ equalsSign) lex env
                     in
                         SOME(sign, false, sigLoc)
                     end
                 |   ColonGt =>
                     let
-                        val () = insymbol lex
+                        val () = LEX.insymbol lex
                         val (sign, sigLoc) = parseSignature (fsys ++ equalsSign) lex env
                     in
                         SOME(sign, true, sigLoc)
@@ -2078,17 +2074,17 @@ struct
                 |   _ => NONE
            
             (* Now the equals sign *)
-            val () = getsym (SYMBOLS.EqualsSign, lex)
+            val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex)
             (* And finally the functor value. *)
             val (strVal, strLoc) = structVal fsys lex env
-            val locs = locSpan(idLocn, strLoc)
+            val locs = LEX.locSpan (idLocn, strLoc)
         in
             (mkFunctorBinding (strId, idLocn, sigOpt, strVal, parameter, locs), locs, ())
         end (* doFunctDec *)
         
-        val (functs, functLoc, _) = getList (SYMBOLS.AndSy, structSy, lex) doFunctDec ()
+        val (functs, functLoc, _) = SKIPS.getList (SYMBOLS.AndSy, structSy, lex) doFunctDec ()
     in
-        mkFunctorDec (functs, locSpan(startLocn, functLoc))
+        mkFunctorDec (functs, LEX.locSpan (startLocn, functLoc))
     end (* functorDec *)
 
 
@@ -2100,16 +2096,16 @@ struct
             val tsys = fsys ++ semicolonStartDecStructureSy;
         in
             (* Semicolons are optional. *)
-            if (sy lex) = SYMBOLS.Semicolon
+            if (LEX.sy lex) = SYMBOLS.Semicolon
             then
             let
-                val () = insymbol lex
+                val () = LEX.insymbol lex
             in 
                 getDecs ()
             end
-            else if (sy lex) inside structureLocalSy
+            else if (LEX.sy lex) inside structureLocalSy
             then (structureDec tsys lex env) :: getDecs()
-            else if (sy lex) inside startDecSys
+            else if (LEX.sy lex) inside startDecSys
             then (mkCoreLang (dec(tsys, lex, true, env))) :: getDecs()
             else (* May be empty *) []
         end (* getDecs *)
@@ -2126,7 +2122,7 @@ struct
       lookupTvar =
         fn name => 
         let
-            val () = errorMessage (lex, location lex, "Free type variables not allowed");
+            val () = LEX.errorMessage (lex, LEX.location lex, "Free type variables not allowed");
         in
             makeParseTypeFreeVar(name, false)
         end}
@@ -2136,9 +2132,9 @@ struct
      or type. *)
     val tsys = fsys ++ startTopSys;
          
-    fun parseTopDecs (_ : symset) : topdec list * location =
+    fun parseTopDecs () : topdec list * location =
     let
-        val startSym = sy lex and startLoc = location lex;
+        val startSym = LEX.sy lex and startLoc = LEX.location lex;
     in
         if startSym = SYMBOLS.Semicolon orelse
            startSym = SYMBOLS.AbortParse
@@ -2147,26 +2143,22 @@ struct
         else if startSym inside topdecStartSy
         then
         let
-            val (aDec : topdec, newOkStartSet : symset) =
-                case startSym of
-                    FunctorSy => (functorDec tsys lex globalEnv, functorSy)
-          
-                |   SignatureSy => (signatureDec tsys lex globalEnv, signatureSy)
-          
-                |   StructureSy => (mkTopDec(structureDec tsys lex globalEnv), structureLocalStartDecSy)
-          
+            val aDec : topdec =
+                (case startSym of
+                    FunctorSy => functorDec tsys lex globalEnv
+                |   SignatureSy => signatureDec tsys lex globalEnv
+                |   StructureSy => mkTopDec (structureDec tsys lex globalEnv)
                 (* Local declarations are ambiguous; we treat them as strDecs *)
-                |   LocalSy => (mkTopDec(structureDec tsys lex globalEnv), structureLocalStartDecSy)
-          
+                |   LocalSy => mkTopDec (structureDec tsys lex globalEnv)
                 (* let, val, fun etc. *)
-                |   _ => (mkTopDec(mkCoreLang (dec(tsys, lex, true, globalEnv))), structureLocalStartDecSy);
+                |   _ => mkTopDec (mkCoreLang (dec (tsys, lex, true, globalEnv))))
 
-            val (rest, locRest) = parseTopDecs newOkStartSet
+            and (rest, locRest) = parseTopDecs ()
         in
-            (aDec :: rest, locSpan(startLoc, locRest))
+            (aDec :: rest, LEX.locSpan (startLoc, locRest))
         end
      
-        else (notfound (";", lex); ([], startLoc))
+        else (SKIPS.notfound (";", lex); ([], startLoc))
     end; (* parseTopDecs *)
 
 in (* body of parseDec *)
@@ -2179,20 +2171,20 @@ in (* body of parseDec *)
        SPF 18/7/96
     *)
 
-    if (sy lex) inside topdecStartSy
-    then mkProgram(parseTopDecs topdecStartSy)
+    if (LEX.sy lex) inside topdecStartSy
+    then mkProgram (parseTopDecs ())
   
     else
     let (* expression - only one allowed. *)
-        val startLoc = location lex;
+        val startLoc = LEX.location lex;
         val aDec = mkCoreLang (dec(tsys, lex, false, globalEnv));
         val () = 
-            if (sy lex) <> SYMBOLS.Semicolon andalso
-              (sy lex) <> SYMBOLS.AbortParse
-            then notfound (";", lex)
+            if (LEX.sy lex) <> SYMBOLS.Semicolon andalso
+              (LEX.sy lex) <> SYMBOLS.AbortParse
+            then SKIPS.notfound (";", lex)
             else ()
     in
-        mkProgram([mkTopDec aDec], locSpan(startLoc, location lex))
+        mkProgram([mkTopDec aDec], LEX.locSpan (startLoc, LEX.location lex))
     end
 end; (* parseDec *)
 
