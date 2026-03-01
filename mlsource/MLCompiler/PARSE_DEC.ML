@@ -79,7 +79,6 @@ struct
  open PARSETREE;
  open STRUCTURES;
  open PARSETYPE;
- open UTILITIES;
  open SIGNATURES
 
  (* constant sets defined here to reduce run-time garbage SPF 24/9/94 *)
@@ -117,7 +116,7 @@ struct
 
   fun mkLocalFixEnv {lookupFix,lookupTvar, ...} =
   let
-    val newFixEnv   = searchList ();
+    val newFixEnv   = UTILITIES.searchList ();
   in
     {
       enterFix      = #enter newFixEnv,
@@ -139,7 +138,7 @@ struct
   fun getShortId (kind, fsys, lex): string * location =
   let
     val idLoc as (iden, location) = SKIPS.getid (kind, fsys, lex);
-    val () = checkForDots (iden, lex, location);
+    val () = UTILITIES.checkForDots (iden, lex, location);
   in
     idLoc
   end;
@@ -297,7 +296,7 @@ struct
 
     fun typeBinding (isSpec, isEqtype, _) fsys =
     let
-        val newTVenv  = searchList ();
+        val newTVenv  = UTILITIES.searchList ();
         val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
         val (typeName, idLocn)   = getShortId (ident, fsys ++ equalsSign, lex);
@@ -330,7 +329,7 @@ struct
       This is used both for declarations and for specifications. *)
        let
         val () = LEX.insymbol lex;
-        val newTVenv = searchList ();
+        val newTVenv = UTILITIES.searchList ();
         (* The type variables will be empty if this is a replication. *)
         val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
@@ -450,7 +449,7 @@ struct
     and datatypeBinding isSpecification fsys =
     (* Datatype and abstype declarations and datatype specifications. *)
     let
-        val newTVenv = searchList ();
+        val newTVenv = UTILITIES.searchList ();
         val typeVars = getTypeVars TVCreateBound newTVenv
         (* The name of the type *)
         val (typeName, idLocn) = getShortId (ident, fsys ++ equalsSign, lex);
@@ -519,7 +518,7 @@ struct
       environment if it is not already there. Type variables are always put into
       the most local scope first and then tidied up in the second pass. *)
    let
-       val {enter,lookup,apply} = searchList ();
+       val {enter,lookup,apply} = UTILITIES.searchList ();
        
        (* Type variables used here should go in the scope of the
            most local val or fun. *)
@@ -1597,7 +1596,7 @@ struct
             (* This is similar to a type binding but with the possibility
                that the type is a longtycon. *)
             val () = SKIPS.getsym(SYMBOLS.TypeSy, lex);
-            val newTVenv  = searchList ();
+            val newTVenv  = UTILITIES.searchList ();
             val typeVars = getTypeVars TVCreateBound newTVenv
             val (typeName, nameLoc)  = getLongId (ident, fsys ++ equalsSign, lex);
             val typeVarEnv = genTypeVarEnv newTVenv
@@ -1893,7 +1892,7 @@ struct
                     let (* functor application *)
                         val () = LEX.insymbol lex
                         (* Functor names must not be qualified. *)
-                        val () = checkForDots (iden, lex, idLoc);
+                        val () = UTILITIES.checkForDots (iden, lex, idLoc);
                         val parameter =
                             case LEX.sy lex of
                                 RightParen => (* Empty parameter list *)
