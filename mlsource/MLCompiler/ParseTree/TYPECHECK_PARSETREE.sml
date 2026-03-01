@@ -220,7 +220,7 @@ struct
 
         fun checkForDots (name, lex, location) =
             if CharVector.exists(fn #"." => true | _ => false) name
-            then errorMessage (lex, location, "qualified name " ^ name ^ " illegal here")
+            then LEX.errorMessage (lex, location, "qualified name " ^ name ^ " illegal here")
             else ()
 
       fun checkForBuiltIn (name, v, lex, lineno, isConstr) =
