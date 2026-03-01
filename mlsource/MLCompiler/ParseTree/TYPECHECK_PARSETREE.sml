@@ -218,7 +218,7 @@ struct
        declarations. It performs the type checking. "makeTypeId" is used
        to construct unique identifiers for types depending on the context
        (i.e. in a signature, structure or functor). *)
-    fun pass2 (v, makeTypeId, env, lex, sigTypeIdMap) =
+    fun pass2 (v : parsetree, makeTypeId, env, lex, sigTypeIdMap) : instanceType =
     let
         (* Returns a function which can be passed to unify or apply to
            print a bit of context info. *)
