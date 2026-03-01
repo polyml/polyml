@@ -2134,7 +2134,7 @@ struct
      or type. *)
     val tsys = fsys ++ startTopSys;
          
-    fun parseTopDecs (_ : symset) : topdec list * location =
+    fun parseTopDecs () : topdec list * location =
     let
         val startSym = LEX.sy lex and startLoc = LEX.location lex;
     in
@@ -2145,21 +2145,17 @@ struct
         else if startSym inside topdecStartSy
         then
         let
-            val (aDec : topdec, newOkStartSet : symset) =
-                case startSym of
-                    FunctorSy => (functorDec tsys lex globalEnv, functorSy)
-          
-                |   SignatureSy => (signatureDec tsys lex globalEnv, signatureSy)
-          
-                |   StructureSy => (mkTopDec(structureDec tsys lex globalEnv), structureLocalStartDecSy)
-          
+            val aDec : topdec =
+                (case startSym of
+                    FunctorSy => functorDec tsys lex globalEnv
+                |   SignatureSy => signatureDec tsys lex globalEnv
+                |   StructureSy => mkTopDec (structureDec tsys lex globalEnv)
                 (* Local declarations are ambiguous; we treat them as strDecs *)
-                |   LocalSy => (mkTopDec(structureDec tsys lex globalEnv), structureLocalStartDecSy)
-          
+                |   LocalSy => mkTopDec (structureDec tsys lex globalEnv)
                 (* let, val, fun etc. *)
-                |   _ => (mkTopDec(mkCoreLang (dec(tsys, lex, true, globalEnv))), structureLocalStartDecSy);
+                |   _ => mkTopDec (mkCoreLang (dec (tsys, lex, true, globalEnv))))
 
-            val (rest, locRest) = parseTopDecs newOkStartSet
+            and (rest, locRest) = parseTopDecs ()
         in
             (aDec :: rest, LEX.locSpan (startLoc, locRest))
         end
@@ -2178,7 +2174,7 @@ in (* body of parseDec *)
     *)
 
     if (LEX.sy lex) inside topdecStartSy
-    then mkProgram(parseTopDecs topdecStartSy)
+    then mkProgram (parseTopDecs ())
   
     else
     let (* expression - only one allowed. *)
