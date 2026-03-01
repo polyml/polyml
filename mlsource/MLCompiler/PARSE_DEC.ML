@@ -169,6 +169,9 @@ struct
      then LEX.errorMessage (lex, LEX.location lex, errMessage)
      else ();
 
+     fun reportDup lex (name, newLoc, _) =
+         LEX.errorMessage (lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
+
  in
 
  fun parseDec (fsys, lex, {enterFix, lookupFix}, {recordPunning}) : program =
@@ -809,9 +812,7 @@ struct
                         |   _ =>
                             let (* lab1 = pat1, __ , labn = patn <<, ... >>*)
                                 (* The same label name should not be used more than once. *)
-                                fun reportDup (name, newLoc, _) =
-                                    LEX.errorMessage(lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
-                                val dupCheck = noDuplicates reportDup
+                                val dupCheck = UTILITIES.noDuplicates (reportDup lex)
 
                                 fun getLabels () =
                                     case LEX.sy lex of
@@ -1028,9 +1029,7 @@ struct
                         |   _ =>
                             let (* lab1 = exp1, __ , labn = expn *)
                                 (* The same label name should not be used more than once. *)
-                                fun reportDup (name, newLoc, _) =
-                                    LEX.errorMessage(lex, newLoc, "Label (" ^ name ^ ") appears more than once.")
-                                val dupCheck = noDuplicates reportDup
+                                val dupCheck = UTILITIES.noDuplicates (reportDup lex)
 
                                 fun getEntry () =
                                 let
