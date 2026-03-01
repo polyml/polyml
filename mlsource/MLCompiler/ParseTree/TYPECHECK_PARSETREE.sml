@@ -100,7 +100,6 @@ struct
         end
     end
 
-    open LEX
     open CODETREE
     open STRUCTVALS
     open TYPETREE
@@ -141,7 +140,7 @@ struct
                         in
                             if arity <> num andalso not (isUndefinedTypeConstr constructor)
                             then (* Give an error message *)
-                            errorMessage (lex, location,
+                            LEX.errorMessage (lex, location,
                                 String.concat["Type constructor (", tcName,
                                     ") requires ", Int.toString arity, " type(s) not ",
                                     Int.toString num])
@@ -212,12 +211,7 @@ struct
     let
         (* Returns a function which can be passed to unify or apply to
            print a bit of context info. *)
-        fun foundNear v () =
-        let
-            val errorDepth = errorDepth lex
-        in
-            displayParsetree (v, errorDepth)
-        end
+        fun foundNear v () = displayParsetree (v, LEX.errorDepth lex)
 
       (* A simpler error message routine for lookup_... where the message
          does not involve pretty-printing anything. *)
@@ -256,7 +250,7 @@ struct
                             [PrettyString "Reason:", PrettyBreak(1, 3), detail])
                     ])
         in
-            reportError lex
+            LEX.reportError lex
             {
                 location = location,
                 hard = true,
@@ -279,7 +273,7 @@ struct
                             [ PrettyString "Reason:", PrettyBreak(1, 3), detail])
                     ])
         in
-            reportError lex
+            LEX.reportError lex
             {
                 location = location,
                 hard = true,
@@ -290,42 +284,34 @@ struct
 
         (* Display a value and its type as part of an error message. *)
         fun valTypeMessage (lex, typeEnv) (title, value, valType) =
-        let
-            val errorDepth = errorDepth lex
-        in
             PrettyBlock(3, false, [],
                 [
                     PrettyString title,
                     PrettyBreak(1, 0),
-                    displayParsetree (value, errorDepth),
+                    displayParsetree (value, LEX.errorDepth lex),
                     PrettyBreak(1, 0),
                     PrettyString ":",
                     PrettyBreak(1, 0),
                     display(valType, 10000 (* All of it *), typeEnv)
                 ])
-        end
 
         fun matchTypeMessage (lex, typeEnv) (title, match, valType) =
-        let
-            val errorDepth = errorDepth lex
-        in
             PrettyBlock(3, false, [],
                 [
                     PrettyString title,
                     PrettyBreak(1, 0),
-                    displayMatch (match, errorDepth),
+                    displayMatch (match, LEX.errorDepth lex),
                     PrettyBreak(1, 0),
                     PrettyString ":",
                     PrettyBreak(1, 0),
                     display(valType, 10000 (* All of it *), typeEnv)
                 ])
-        end
 
         (* Old error message and unification functions.  These will eventually be
            removed.  *)
         fun matchError 
             (error: matchResult, lex : lexan, location : LEX.location, moreInfo : unit -> pretty, typeEnv) : unit =
-            reportError lex
+            LEX.reportError lex
             {
                 location = location,
                 hard = true,
@@ -489,7 +475,6 @@ struct
                                    The previous items must have produced a consistent type
                                    otherwise we'd already have reported an error but we
                                    can't identify exactly where the error occurred. *)
-                                val errorDepth = errorDepth lex
                                 val previousValsAndType =
                                     PrettyBlock(3, false, [],
                                         [
@@ -499,7 +484,7 @@ struct
                                             PrettyBreak(1, 0),
                                             PrettyBlock(0, false, [],
                                                 printList (*displayParsetree*)displayValue (List.take(tlist, n),
-                                                separator, errorDepth)),
+                                                separator, LEX.errorDepth lex)),
                                             PrettyBreak(1, 0),
                                             PrettyString ":",
                                             PrettyBreak(1, 0),
@@ -599,7 +584,7 @@ struct
                     (* If undefined or another variable, construct a new variable. *)
                     else
                     let
-                        val props = [DeclaredAt location, SequenceNo (newBindingId lex)]
+                        val props = [DeclaredAt location, SequenceNo (LEX.newBindingId lex)]
                         val var as Value{typeOf=ValueType(valTypeOf, _), ...} =
                             mkVar(name, ValueType(mkTypeVar (NotGeneralisable level, false), []), props)
                     in
@@ -1032,7 +1017,7 @@ struct
                        right-hand side of the declaration.  If we are effectively
                        giving a new name to a type constructor we use the same type
                        identifier.  This is needed to check "well-formedness" in signatures. *)
-                    val props = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                    val props = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
 
                     val tcon =
                         case decType of
@@ -1093,7 +1078,7 @@ struct
                                     namePrefix, giveError (v, lex, oldLoc))
                     val TypeConstrSet(tcons, tcConstructors) = oldTypeCons
                     val newName = newType
-                    val locations = [DeclaredAt newLoc, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt newLoc, SequenceNo (LEX.newBindingId lex)]
                     (* Create a new constructor with the same unique ID. *)
                     val typeID = tcIdentifier tcons
                     val newTypeCons = makeTypeConstructor(newName, typeID, locations)
@@ -1278,7 +1263,7 @@ struct
                         case ofType of
                             NONE => (exnType, true)
                         |   SOME typeof => (mkFunctionType(ptAssignTypes(typeof, v), exnType), false)
-                    val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
     
                     val exValue = 
                         case previous of 
@@ -1632,7 +1617,7 @@ struct
                         then
                         let
                             open DEBUG
-                            val parameters = debugParams lex
+                            val parameters = LEX.debugParams lex
                             val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
                         in
                             allowGeneralisation(SimpleInstance typeOf, newLevel, checkOverloadFlex, giveError (v, lex, line))
@@ -1697,7 +1682,7 @@ struct
                     (* Just look at the first clause for the moment. *)
                     val { ident = { name, location, ... }, ... } = dec;
                     (* Declare a new identifier with this name. *)
-                    val locations = [DeclaredAt location, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt location, SequenceNo (LEX.newBindingId lex)]
                     val funVar =
                         mkValVar (name, ValueType(mkTypeVar (NotGeneralisable funLevel, false), []), locations)
 
@@ -1934,7 +1919,7 @@ struct
                     FValBind{functVar as ref(Value{typeOf=ValueType(typeOf, _), access, class, locations, name, references, ...}), location, ...}) =
             let
                 open DEBUG
-                val parameters = debugParams lex
+                val parameters = LEX.debugParams lex
                 val checkOverloadFlex = getParameter narrowOverloadFlexRecordTag parameters
                 val valType =
                     allowGeneralisation(SimpleInstance typeOf, funLevel, checkOverloadFlex, giveError (v, lex, location))
@@ -1983,7 +1968,7 @@ struct
                     if letDepth = 0
                     then makeTypeId(false, true, (typeVars, NONE), description)
                     else makeFreeIdEqUpdate (arity, Local{addr = ref ~1, level = ref baseLevel}, false, description)
-                val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                val locations = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
                 val tc = makeTypeConstructor(name, newId, locations)
             in
                 tcon := TypeConstrSet(tc, []);
@@ -2018,7 +2003,7 @@ struct
                 val description = { location = nameLoc, name = name, description = "" }
                 (* Construct a type constructor which is an alias of the
                    right-hand side of the declaration. *)
-                val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                val locations = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
                 val tcon =
                     makeTypeConstructor (name,
                         makeTypeId(false, false, (tcvVars, decType), description), locations)
@@ -2049,7 +2034,7 @@ struct
                 val templates = List.map (fn _ => TemplPlain{ equality=false }) typeVars
         
                 (* The new constructor applied to the type variables (if any) *)
-                val locations = [DeclaredAt nameLoc, SequenceNo (newBindingId lex)]
+                val locations = [DeclaredAt nameLoc, SequenceNo (LEX.newBindingId lex)]
                 val resultType = mkTypeConstruction (name, typ, typeVarsAsTypes, locations)
 
                 (* Sort the constructors by name.  This simplifies matching with
@@ -2064,7 +2049,7 @@ struct
                             NONE => (resultType, true)
                         |   SOME argtype =>
                                 (mkFunctionType (localAssignTypes argtype, resultType), false)
-                    val locations = [DeclaredAt idLocn, SequenceNo (newBindingId lex)]
+                    val locations = [DeclaredAt idLocn, SequenceNo (LEX.newBindingId lex)]
                     val cons =
                         Value { name = name, typeOf = ValueType(constrType, templates),
                             access = Local{addr = ref ~1, level = ref baseLevel},
