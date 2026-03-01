@@ -32,7 +32,8 @@ sig
         { enterFix:  string * fixStatus -> unit,
           lookupFix: string -> fixStatus option };
     type params =
-        { recordPunning: bool };
+        { recordPunning: bool,
+          recordUpdate: bool };
     type program;
 
     val parseDec: symset * lexan * fixes * params -> program;
