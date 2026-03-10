@@ -7,19 +7,19 @@
     ML translation and other changes:
     Copyright (c) 2000
         Cambridge University Technical Services Limited
-        
+
     Further development:
     Copyright (c) 2000-7, 2015-16, 2020 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
     License version 2.1 as published by the Free Software Foundation.
-    
+
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
     Lesser General Public License for more details.
-    
+
     You should have received a copy of the GNU Lesser General Public
     License along with this library; if not, write to the Free Software
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
@@ -39,16 +39,16 @@ struct
 
   open PRETTY;
   open SYMBOLS;              infix 8 eq neq;
-  
+
   type location = { file: string, startLine: FixedInt.int, startPosition: FixedInt.int, endLine: FixedInt.int, endPosition: FixedInt.int }
 
-  type lexan = 
+  type lexan =
     {
       stream:      unit -> char option,
       ch:          char ref,
       sy:          sys ref,
       id:          string ref,
-      messageOut: 
+      messageOut:
         { location: location, hard: bool, message: pretty, context: pretty option } -> unit,
       errors:      bool ref,
       pushedSym:   sys ref,
@@ -64,7 +64,7 @@ struct
       endPosition:   FixedInt.int ref,
       bindingCounter: unit -> FixedInt.int
     };
-    
+
   (* The lexical analyser reads characters from the stream and updates the
      references in the lexan structure.  That's not perhaps very ML-like
      but the lexical analyser can be a hot-spot in the compiler unless it's
@@ -152,7 +152,7 @@ struct
         startLine := ! endLine; endLine := line;
         startPosition := ! endPosition; endPosition := offset
     end
-    
+
     fun setSymbolEnd {getLineNo, getOffset, endLine, endPosition, ...} =
     let
         val line = getLineNo() and offset = getOffset()
@@ -200,7 +200,7 @@ struct
     )
 
     exception EndOfLine;
-    
+
     (* "ch" contains the next character in the stream.  extraChars is a hack that is
        needed to deal with a number that looks like it might be a real number
        but actually isn't. *)
@@ -214,12 +214,12 @@ struct
     if isWhiteSpace c
     then (setSymbolEnd state; nextCh state; skipWhiteSpace state)
     else c
- 
+
     (* Leave string construction until we have all the characters.  Since
        Single character strings are the same as single characters it doesn't
        cost anything to apply "str" but it allows us to conatenate with any
        prefix string in one go. *)
-    fun readChars (state as { ch, ... }) (isOk: char -> bool) (s: string) : string = 
+    fun readChars (state as { ch, ... }) (isOk: char -> bool) (s: string) : string =
     let
         fun loop (): string list =
         let
@@ -237,10 +237,10 @@ struct
     fun parseNumber (hasMinus, state as { sy, id, ch, extraChars, ... }) =
      (
         sy := IntegerConst;
-        
+
         (* Copy digits into the buffer. *)
         id := readChars state isNumeric "";
-        
+
         (* May be the end of an integer, part of a real number,
            or w for word or x for hex. *)
         (* Since "0" is a valid integer what follows it is only treated
@@ -286,18 +286,20 @@ struct
         then (* possible real constant. *)
         (
             if !ch = #"."
-            then
-            (
-               sy := RealConst;
-               (* Add the "." to the string. *)
-               id := !id ^ ".";
-               nextCh state;
-               (* Must be followed by at least one digit. *)
-               if not (isNumeric (!ch))
-               then lexError(state, "malformed real number: " ^ !id ^ str(!ch))
-               else id := readChars state isNumeric (!id)
-            )
-            else ();
+              then
+              (
+                 nextCh state; (* Speculatively consume the dot, but don't commit yet *)
+                 if isNumeric (!ch)
+                 then
+                 (
+                      sy := RealConst;
+                      id := !id ^ ".";
+                      id := readChars state isNumeric (!id)
+                 )
+                 else (* Not a real number in the end! Push back the consumed dot. *)
+                      (extraChars := [!ch]; ch := #".")
+              )
+              else ();
 
             (* There's a nasty here.  We may actually have 1e~; which should
                (probably) be treated as 1 e ~ ; That means that if after we've
@@ -310,7 +312,7 @@ struct
                 val eChar = !ch
             in
                 nextCh state;
-               
+
                 (* May be followed by a ~ *)
                 (* If it's followed by a digit we have an exponent otherwise
                   we have a number followed by a identifier.  In that case
@@ -345,9 +347,9 @@ struct
          (
             case !ch of
                 #"\"" (* double-quote. *) => (* Finished - return result. *) (setSymbolEnd state; nextCh state; soFar)
-    
+
             |   #"\n" => (setSymbolEnd state; nextCh state; raise EndOfLine)
-    
+
             |   #"\\" => (* Escape *)
                     let
                         val _ = nextCh state; (* Skip the escape char. *)
@@ -381,7 +383,7 @@ struct
                         end
                     else getString (next :: #"\\" :: soFar)
                   end
-    
+
             |   ch => (* Anything else *)
                     (
                      nextCh state;
@@ -417,7 +419,7 @@ struct
          (* Returns the first chararacter AFTER the comment *)
          fun skipCommentBody (firstCh : char) : char =
             if firstCh = eofChar
-            then 
+            then
             (
                setSymbolEnd state;
                lexError(state, "end of file found in comment");
@@ -431,7 +433,7 @@ struct
          skipCommentBody (getOpt(stream (), eofChar)) (* Skip the initial "*" *)
        end; (* skipComment *)
 
-    in 
+    in
         ch := skipComment ()
     end (* parseComment *);
 
@@ -441,7 +443,7 @@ struct
     fun parseIdent (state as { ch, id, sy, ... }) charsetTest first (* any characters read so far *) =
     let
         val idVal = readChars state charsetTest first;
-    in      
+    in
     (* Qualified names may involve fields of different lexical form
        e.g. A.B.+ *)
         if !ch = #"." (* May be qualified *)
@@ -452,13 +454,13 @@ struct
         in
              if isAlphabetic c
                then parseIdent state isAlphaNumeric (idVal ^ ".")
-                 
+
              else if isOperator c
                then parseIdent state isOperator (idVal ^ ".")
-                 
+
              else lexError(state, "invalid identifier - "^ idVal ^ "." ^ str c)
         end
-        else 
+        else
         (
             id := idVal;
             sy := (if 0 < size idVal andalso String.str(String.sub(idVal, 0)) = "'"
@@ -484,12 +486,12 @@ struct
                (
                  (* Read the number and sets sy to integerConst. *)
                  parseNumber(true, state);
-                 
+
                  (* Prepend the "~" to the num *)
-                 id := "~" ^ !id 
+                 id := "~" ^ !id
                )
                else
-                 (* Part of an operator. *) 
+                 (* Part of an operator. *)
                  parseIdent state isOperator "~"
              )
 
@@ -503,12 +505,12 @@ struct
                 if !ch = #"\""
                 then (parseString state; sy := CharConst)
                 else
-                 (* Part of an operator. *) 
+                 (* Part of an operator. *)
                  parseIdent state isOperator "#"
               )
-        
+
         | #"\"" (* double quote. *) => (parseString state; sy := StringConst)
-            
+
         | #";" =>
             (
                 sy := Semicolon;
@@ -519,25 +521,25 @@ struct
                    the normal space-skipping case will apply. *)
                 ch := #" "
             )
-            
+
         | #"," => (sy := Comma; nextCh state)
-            
+
         | #"(" =>
               (
                 nextCh state;
                 if !ch <> #"*" then sy := LeftParen else parseComment state
               )
-              
+
         | #")" => (sy := RightParen; nextCh state)
-            
+
         | #"[" => (sy := LeftBrack; nextCh state)
-            
+
         | #"]" => (sy := RightBrack; nextCh state)
-            
+
         | #"_" => (sy := Underline; nextCh state)
-            
+
         | #"{" => (sy := LeftCurly; nextCh state)
-            
+
         | #"}" => (sy := RightCurly; nextCh state)
 
         | #"." => (* "..." *)
@@ -549,27 +551,27 @@ struct
                 (
                     setSymbolEnd state;
                     nextCh state;
-                    if !ch <> #"." 
+                    if !ch <> #"."
                     then lexError(state, "unknown symbol .." ^ str(!ch))
                     else (sy := ThreeDots; setSymbolEnd state; nextCh state)
                 )
             )
-              
+
          | firstCh =>
             (* These can't be so easily incorporated into a "case". *)
             if firstCh = eofChar
             then sy := AbortParse
-          
+
             else if isNumeric firstCh
             then parseNumber(false, state)
 
             else if isAlphabetic firstCh orelse firstCh = #"'"
             then parseIdent state isAlphaNumeric ""
-          
+
             else if isOperator firstCh
             (* excludes ~ which has already been done *)
             then parseIdent state isOperator ""
-            
+
             else let (* illegal character *)
                 val printableFirstCh = Char.toString firstCh
             in
@@ -586,7 +588,7 @@ struct
     if ! pushedSym <> Othersy then pushedSym := Othersy
     (* pushedSym is a hack to handle the difficulty of parsing
        val ('a, 'b) f = ... compared with val (a, b) = ... and the
-       similar fun declarations. 
+       similar fun declarations.
        It's also used to handle where type t = int and type ... compared
        with  where type t = int and S = sig ...*)
     else
@@ -599,9 +601,9 @@ struct
             raise Misc.InternalError "end of file"
         )
         else ();
-      
+
         sy := Othersy; (* default - anything unrecognisable *)
-      
+
         parseToken state
     ); (* insymbol *)
 
@@ -612,19 +614,19 @@ struct
         else pushedSym := sym
 
    (* exported version of sy and id. *)
-   
+
    fun sy ({sy=ref sy, pushedSym = ref pushed, ...}:lexan) =
         if pushed <> Othersy then pushed else sy;
 
    fun id ({id=ref id,...}:lexan) = id;
-   
+
    val debugParams = #debugParams
-   
+
    fun newBindingId({bindingCounter, ...}: lexan) = bindingCounter()
-   
+
    val nullLocation: location =
         { file="", startLine=0, startPosition=0, endLine=0, endPosition=0 }
-   
+
     (* Construct the location that includes all the locations in
        the list.  Used to combine the locations of individual lexical
        units into a location for a larger syntactic unit. *)
