@@ -77,6 +77,25 @@ struct
     and isWhiteSpace = Char.isSpace
     and isHexadecimal  = Char.isHexDigit
 
+    (* Count logical characters in a raw (undecoded) string *)
+    fun logicalLen s =
+        let fun count i =
+            if i >= size s then 0
+            else if String.sub(s, i) = #"\\"
+            then (* Escape sequence is a single logical character *)
+                let val next = i + 1 in
+                    if next < size s andalso String.sub(s, next) = #"^"
+                    then 1 + count (i + 3) (* \^c *)
+                    else if next < size s andalso String.sub(s, next) = #"u"
+                    then 1 + count (i + 6) (* \uXXXX *)
+                    else if next < size s andalso Char.isDigit(String.sub(s, next))
+                    then 1 + count (i + 4) (* \DDD *)
+                    else 1 + count (i + 2) (* \t, \n, \\, \", etc. *)
+                end
+            else 1 + count (i + 1)
+        in count 0
+    end
+
     (* For our purposes we include quote and underscore. *)
     fun isAlphaNumeric c = Char.isAlphaNum c orelse c = #"'" orelse c = #"_"
 
@@ -503,7 +522,14 @@ struct
               (
                 nextCh state;(* get next character *)
                 if !ch = #"\""
-                then (parseString state; sy := CharConst)
+                then
+                (
+                    parseString state;
+                    sy := CharConst;
+                    if logicalLen (!id) <> 1
+                    then lexError(state, "character constant must contain exactly one character")
+                    else ()
+                )
                 else
                  (* Part of an operator. *)
                  parseIdent state isOperator "#"
