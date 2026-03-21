@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13,15-22 David C.J. Matthews
+    Copyright (c) 2012,13,15-22, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -333,7 +333,8 @@ struct
                 argTypes      = List.tabulate(args, fn _ => (GeneralType, [])),
                 resultType    = GeneralType,
                 localCount    = numLocals,
-                recUse        = []
+                recUse        = [],
+                functionId    = ref ()
               }
     in
         val mkProc = Lambda o mkSimpleFunction DontInline (* Normal function *)
@@ -369,7 +370,8 @@ struct
                 argTypes      = map (fn t => (t, [])) argsAndTypes,
                 resultType    = resultType,
                 localCount    = numLocals,
-                recUse        = []
+                recUse        = [],
+                functionId    = ref ()
             }
     in
         val mkFunction = mkFunWithTypes DontInline

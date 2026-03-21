@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2016-22
+    Modified David C. J. Matthews 2008-2010, 2013, 2016-22, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -176,7 +176,8 @@ sig
         argTypes      : (argumentType * codeUse list) list,  (* "Types" and usage of arguments. *)
         resultType    : argumentType,       (* Result "type" of the function. *)
         localCount    : int,                (* Maximum (+1) declaration address for locals. *)
-        recUse        : codeUse list        (* Recursive use of the function *)
+        recUse        : codeUse list,       (* Recursive use of the function *)
+        functionId    : unit ref            (* A unique Id for the function code to detect recursion. *)
     }
 
     (* Code address.  The base is either a Poly address or a SysWord value for C
