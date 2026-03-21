@@ -1513,7 +1513,7 @@ struct
                                 then PrettyString "..."
                                 else PrettyBlock(0, false, [],
                                          [PrettyString "(", PrettyBreak (0, 0)]
-                                         @ prettyList args argMap (depth - 1) ","
+                                         @ prettyList args bvMap (* original args and original map. *) (depth - 1) ","
                                          @ [PrettyBreak (0, 0), PrettyString ")"]
                                      ),
                                 PrettyBreak(1, 0),
