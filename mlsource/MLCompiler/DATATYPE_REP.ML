@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2013, 2015-16, 2020-21, 2025 David C.J. Matthews
+    Copyright (c) 2009, 2013, 2015-16, 2020-21, 2025, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -54,8 +54,7 @@ struct
     datatype representations = 
         RefForm            (* As for OnlyOne but must be a monotype. *)
     |   UnitForm           (* If the only value in an enumeration. *)
-    |   OnlyOne            (* If only one constructor, there is no tag or box. *)
-                       (* Could be replaced by "UnboxedForm"? *)
+    |   OnlyOne of {recursive:bool} (* If only one constructor, there is no tag or box. *)
     
     |   EnumForm of { tag: word, maxTag: word }    (* Enumeration - argument is the number. *)
     |   ShortForm of word  (* As EnumForm except that one datatype is BoxedForm. *)
@@ -100,7 +99,8 @@ struct
             |   RefForm              => refApplyCode arg
             |   TaggedBox{tag, ...}  => mkDatatype [mkTag tag, arg]
             |   TaggedTuple{tag, size, ...} => tagTupleApplyCode(tag, size, arg)
-            |   OnlyOne              => arg
+            |   OnlyOne{recursive=false}    => arg
+            |   OnlyOne{recursive=true} => mkDatatype [arg]
             |   ConstForm{ value, ...} => mkConst value (* tagged value. *)
             |   EnumForm{tag, ...}   => mkConst (toMachineWord tag)
             |   ShortForm tag        => mkConst (toMachineWord tag)
@@ -132,7 +132,7 @@ struct
             |   TaggedBox{tag, maxTag}  => testBoxedTagOf(tag, maxTag, value)
             |   TaggedTuple{tag, maxTag, ...} => testBoxedTagOf(tag, maxTag, value)
             |   ConstForm{value=c, maxTag} => testBoxedTagOf(toShort (loadTag c), maxTag, value)
-            |   OnlyOne              => CodeTrue
+            |   OnlyOne _            => CodeTrue
             |   UnitForm             => CodeTrue
         end
 
@@ -161,7 +161,8 @@ struct
             |   RefForm              => refDestructCode value
             |   TaggedBox _         => mkVarField (1, value) (* contents is second field of record *)
             |   TaggedTuple { size, ...} => tupleDestructCode(size, value, 1)
-            |   OnlyOne              => value
+            |   OnlyOne{recursive=false} => value
+            |   OnlyOne{recursive=true} => mkVarField (0, value)
             |   EnumForm _         => CodeZero (* To keep optimiser happy. *)
             |   ShortForm _         => CodeZero (* To keep optimiser happy. *)
             |   ConstForm _          => CodeZero (* (rather than raising an exception) *)
@@ -237,12 +238,11 @@ struct
      mkTagTest which can be converted into an indexed case.  This can't be
      used for ShortForm because the values for the datatype include addresses. 
 *)
-  datatype constructorKind =
-    Nullary             (* a nullary constructor *)
-  | UnaryGeneric        (* a normal unary constructor *)
-  | UnaryFunction       (* unary constructor applied to a function *)
-  | UnaryTupled of int  (* a unary constructor applied to a tuple of size n  *)
-  ;
+    datatype constructorKind =
+        Nullary             (* a nullary constructor *)
+    |   UnaryGeneric        (* a normal unary constructor *)
+    |   UnaryFunction       (* unary constructor applied to a function *)
+    |   UnaryTupled of int  (* a unary constructor applied to a tuple of size n  *)
 
     fun getTupleKind(LabelledRecord [{typeOf, ...}]) =
             (* Singleton records are always represented simply by the value. *)
@@ -262,26 +262,50 @@ struct
     (* N.B. The representation for the "context" and "pretty" datatypes is defined in Pretty.sml.
        Any changes here that may affect the representation of a datatype may require
        changes there as well. *)
-    fun chooseConstrRepr(cs, arity) =
+    fun createConstructorCode(cs, potentialRecursive) =
     let
-        fun checkArgKind (name, NONE) = (Nullary, name)
-        |   checkArgKind (name, SOME argType) = (getTupleKind argType, name)
+        fun checkArgKind (name, NONE) = (Nullary, name, BadType)
+        |   checkArgKind (name, SOME argType) = (getTupleKind argType, name, argType)
         val kinds = map checkArgKind cs
 
-        fun chooseRepr [(Nullary, name)]       = [createNullaryConstructor(UnitForm, name)]
-        |  chooseRepr [(UnaryGeneric, name)]  = [createUnaryConstructor(OnlyOne, name)]
-        |  chooseRepr [(UnaryFunction, name)] = [createUnaryConstructor(OnlyOne, name)]
-        |  chooseRepr [(UnaryTupled _, name)] = [createUnaryConstructor(OnlyOne, name)]
-        |  chooseRepr l =
+        fun isSameTypeIdAs(TypeConstrs{identifier=idA, ...}) (TypeConstrs {identifier=idB, ...}) = sameTypeId(idA, idB)
+
+        fun chooseRepr [(Nullary, name, _)] = [createNullaryConstructor(UnitForm, name)]
+
+        |   chooseRepr [(_, name, argType)] =
             let
-                val unaryCount = List.foldl(fn((Nullary, _), n) => n | (_,n) => n+1) 0 l
+                (* In almost all cases if there is only a single unary constructor we can use the same representation
+                   for the datatypes as the type of the constructor.  The constructor and destructor functions are
+                   then identity functions.  However, if the datatype is recursive, we can have problems in the
+                   optimiser/simplifier which can get into a loop.  See Tests/Succeed/Test132.ML. *)
+
+                fun checkRecursive(TypeConstruction{constr, args, ...}) =
+                    (* Consider the type recursive if it references any of the potentially recursive
+                       datatypes.  This is actually more general than we need because the datatype it references
+                       may not actually be mutually recursive.  It is safe to assume it is recursive.
+                       We have to avoid an infinite loop here that could occur if we start by checking a
+                       type constructor that is not actually recursive itself but refers to a constructor
+                       that is. *)
+                    List.exists (isSameTypeIdAs constr) potentialRecursive orelse List.exists checkRecursive args
+                |   checkRecursive(FunctionType{arg, result}) = checkRecursive arg orelse checkRecursive result
+                |   checkRecursive(LabelledRecord fields) = List.exists (checkRecursive o #typeOf) fields
+                |   checkRecursive _ = false
+                
+                val isRecursive = checkRecursive argType
+            in
+                [createUnaryConstructor(OnlyOne{recursive=isRecursive}, name)]
+            end
+
+        |   chooseRepr l =
+            let
+                val unaryCount = List.foldl(fn((Nullary, _, _), n) => n | (_,n) => n+1) 0 l
             in
                 case unaryCount of
                     0 => (* All are nullary. *)
                     let
                         val maxTag = Word.fromInt(List.length l)-0w1 (* Largest no is length-1 *)
                         fun createRepr(_, []) = []
-                        |   createRepr(n, (_, name) :: t) =
+                        |   createRepr(n, (_, name, _) :: t) =
                                 createNullaryConstructor(EnumForm{tag=n, maxTag=maxTag}, name) :: createRepr (n + 0w1, t)
                     in
                         createRepr(0w0, l)
@@ -295,25 +319,25 @@ struct
                         (* Note that "UnaryTupled 0" (which would arise as a result of a declaration of the
                            form  datatype t = A of () | ... ) can't be represented as "UnboxedForm"
                           because "{}" is represented as a short (unboxed) integer. *)
-                        fun chooseOptimisedRepr1(_, _, []) = []
+                        fun chooseOptimisedRepr1(_, []) = []
 
-                        |   chooseOptimisedRepr1(n, tvs, (Nullary, name) :: t) =
-                                 createNullaryConstructor(ShortForm n, name) :: chooseOptimisedRepr1 (n + 0w1, tvs, t)
+                        |   chooseOptimisedRepr1(n, (Nullary, name, _) :: t) =
+                                 createNullaryConstructor(ShortForm n, name) :: chooseOptimisedRepr1 (n + 0w1, t)
 
-                        |   chooseOptimisedRepr1(n, tvs, (UnaryGeneric, name) :: t) =
-                                   createUnaryConstructor(BoxedForm, name) :: chooseOptimisedRepr1(n, tvs, t)
+                        |   chooseOptimisedRepr1(n, (UnaryGeneric, name, _) :: t) =
+                                   createUnaryConstructor(BoxedForm, name) :: chooseOptimisedRepr1(n, t)
 
-                        |   chooseOptimisedRepr1(n, tvs, (UnaryFunction, name) :: t) =
-                                   createUnaryConstructor(UnboxedForm 0, name)  :: chooseOptimisedRepr1(n, tvs, t)
+                        |   chooseOptimisedRepr1(n, (UnaryFunction, name, _) :: t) =
+                                   createUnaryConstructor(UnboxedForm 0, name)  :: chooseOptimisedRepr1(n, t)
 
-                        |   chooseOptimisedRepr1(n, tvs, (UnaryTupled 0, name) :: t) =
-                                   createUnaryConstructor(BoxedForm, name)    :: chooseOptimisedRepr1(n, tvs, t)
+                        |   chooseOptimisedRepr1(n, (UnaryTupled 0, name, _) :: t) =
+                                   createUnaryConstructor(BoxedForm, name)    :: chooseOptimisedRepr1(n, t)
 
-                        |   chooseOptimisedRepr1(n, tvs, (UnaryTupled s, name) :: t) = 
-                                   createUnaryConstructor(UnboxedForm s, name)  :: chooseOptimisedRepr1(n, tvs, t)
+                        |   chooseOptimisedRepr1(n, (UnaryTupled s, name, _) :: t) = 
+                                   createUnaryConstructor(UnboxedForm s, name)  :: chooseOptimisedRepr1(n, t)
 
                     in
-                        chooseOptimisedRepr1(0w0, arity, l) (* can save the box *)
+                        chooseOptimisedRepr1(0w0, l) (* can save the box *)
                     end
 
                 |   _ =>
@@ -324,12 +348,12 @@ struct
                          by single word objects containing the tag. *)
                         val maxTag = Word.fromInt(List.length l) - 0w1 (* Largest no is length - 1 *)
 
-                        fun chooseOptimisedRepr2(_, _, []) = []
-                        |   chooseOptimisedRepr2(n, tvs, h :: t) = 
+                        fun chooseOptimisedRepr2(_, []) = []
+                        |   chooseOptimisedRepr2(n, h :: t) = 
                             let
                                 val repr = 
                                     case h of
-                                        (Nullary,       name) =>
+                                        (Nullary, name, _) =>
                                         let
                                             (* Make an object with the appropriate tag. Doing it here means we
                                              only do it once for this object. *)
@@ -346,24 +370,50 @@ struct
                                             createNullaryConstructor(genConstForm n, name)
                                         end
                                             
-                                    |   (UnaryGeneric,  name) => createUnaryConstructor(TaggedBox{tag=n, maxTag=maxTag}, name)
-                                    |   (UnaryFunction, name) => createUnaryConstructor(TaggedBox{tag=n, maxTag=maxTag}, name)
-                                    |   (UnaryTupled i, name) =>
+                                    |   (UnaryGeneric,  name, _) => createUnaryConstructor(TaggedBox{tag=n, maxTag=maxTag}, name)
+                                    |   (UnaryFunction, name, _) => createUnaryConstructor(TaggedBox{tag=n, maxTag=maxTag}, name)
+                                    |   (UnaryTupled i, name, _) =>
                                             createUnaryConstructor(
                                                 if i <= 4 (*!maxPacking*)
                                                 then TaggedTuple {tag=n, size=i, maxTag=maxTag}
                                                 else TaggedBox{tag=n, maxTag=maxTag}, name)
                             in
-                                repr :: chooseOptimisedRepr2(n + 0w1, tvs, t)
+                                repr :: chooseOptimisedRepr2(n + 0w1, t)
                             end;
                     in
-                        chooseOptimisedRepr2(0w0, arity, l) (* can use tagged tuples *)
+                        chooseOptimisedRepr2(0w0, l) (* can use tagged tuples *)
                     end
             end
     in
-        { constrs = chooseRepr kinds } 
-    end;
- 
+        chooseRepr kinds
+    end
+
+    (* General case: datatype bindings. *)
+    fun createValueConstructorCode constructorSets =
+    let
+        (* Get the type constructors that have only a single unary constructor.  These are
+           the ones that could give a problem if they're recursive. *)
+        fun filterTypeConstrs(TypeConstrSet(typeConstr, [Value{typeOf=ValueType(FunctionType _, _), ...}])) = SOME typeConstr
+        |   filterTypeConstrs _ = NONE
+        val singleUnaries = List.mapPartial filterTypeConstrs constructorSets
+        
+        fun getConstrCode(TypeConstrSet(_, constrs)) =
+        let
+            (* Get the argument types or EmptyType if this is nullary. *)
+            fun getConstrType(Value{typeOf=ValueType(FunctionType{arg, ...}, _), name, ...}) = (name, SOME arg)
+            |   getConstrType(Value{name, ...}) = (name, NONE)
+            val constrTypesAndNames = List.map getConstrType constrs
+            val constrs = createConstructorCode(constrTypesAndNames, singleUnaries)
+        in
+            constrs
+        end
+    in
+        List.map getConstrCode constructorSets
+    end
+
+    (* Special case for built-in datatypes. *)
+    fun chooseConstrRepr cs = createConstructorCode(cs, [])
+
    (* RefForm, NilForm and ConsForm are only used for built-in types *)
 
 
@@ -535,7 +585,7 @@ struct
                 fun makeCons(s,t) =
                     makeValueConstr(s, ValueType(mkFunctionType(t, contextType), []), false, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
-                val {constrs=constrCode} = chooseConstrRepr(map (fn (s, t) => (s, SOME t)) constrs, 0)
+                val constrCode = chooseConstrRepr(map (fn (s, t) => (s, SOME t)) constrs)
             in
                 ListPair.zipEq(List.map makeCons constrs, constrCode)
             end
@@ -571,7 +621,7 @@ struct
                     makeValueConstr(s, ValueType(ctype, []), nullary, numConstrs,
                         Local{addr=ref ~1, level=ref baseLevel}, [DeclaredAt inBasis])
                 end
-                val {constrs=constrCode, ...} = chooseConstrRepr(constrs, 0)
+                val constrCode = chooseConstrRepr constrs
             in
                 ListPair.zipEq(List.map makeCons constrs, constrCode)
             end
@@ -610,6 +660,7 @@ struct
         type typeConstrSet  = typeConstrSet
         type typeId         = typeId
         type level          = level
+        type typeConstrs    = typeConstrs
     end
 
 end;

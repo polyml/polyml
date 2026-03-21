@@ -38,3 +38,13 @@ end;
 datatype loop = L of loop -> loop;
 val loop = fn (l as L f) => f l;
 val go = fn () => loop (L loop);
+
+(* Another variant.  Where the recursion expansion of "loop" is interleaved with
+   the expansion of "L". *)
+datatype loop = L of (loop -> loop) * int;
+val loop = fn (l as L(f, _)) => f l;
+val go = fn () => loop (L(loop, 0));
+
+(* Yet another case.  This looped when compiling the equality function so simply
+   declaring the datatype was sufficient. *)
+datatype 'a stream = SCons of 'a * 'a stream;
