@@ -221,7 +221,6 @@
 	<source name="mlsource\MLCompiler\TYPETREESIG.sml" />
 	<source name="mlsource\MLCompiler\UniversalTable.ML" />
 	<source name="mlsource\MLCompiler\Utilities.ML" />
-	<source name="mlsource\MLCompiler\UTILITIES_.ML" />
 	<source name="mlsource\MLCompiler\VALUE_OPS.ML" />
 	<source name="mlsource\MLCompiler\ValueOps.ML" />
 	<source name="mlsource\MLCompiler\VALUEOPSSIG.sml" />

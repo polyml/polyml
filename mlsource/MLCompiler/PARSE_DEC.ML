@@ -40,27 +40,19 @@ structure PARSETYPE : PARSETYPESIG
 
 structure UTILITIES :
 sig
-    type lexan
-    type location =
-        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
-          endLine: FixedInt.int, endPosition: FixedInt.int }
-
     val searchList: unit -> { apply: (string * 'a -> unit) -> unit,
                             enter:  string * 'a -> unit,
                             lookup: string -> 'a option }
-    
-    val checkForDots: string * lexan * location -> unit
 
     val noDuplicates: (string * 'a * 'a -> unit) -> 
                        { apply: (string * 'a -> unit) -> unit,
                          enter:  string * 'a -> unit,
-                         lookup: string -> 'a option };
-    
-end;
+                         lookup: string -> 'a option }
+end
 
 sharing STRUCTVALS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing = STRUCTURES.Sharing
       = LEX.Sharing = SIGNATURES.Sharing
-      = UTILITIES = PARSETYPE.Sharing
+      = PARSETYPE.Sharing
       = SYMBOLS.Sharing = SKIPS.Sharing
 
 sharing type SYMBOLS.sys = SYMSET.sys
@@ -135,8 +127,12 @@ struct
       lookupTvar    = lookupTvar
     }
 
-  fun getLongId (kind, fsys, lex): string * location =
-    getid (kind, fsys, lex);
+    fun checkForDots (name, lex, location) =
+        if CharVector.exists(fn #"." => true | _ => false) name
+        then errorMessage (lex, location, "qualified name " ^ name ^ " illegal here")
+        else ()
+
+  fun getLongId (kind, fsys, lex): string * location = getid (kind, fsys, lex)
 
   fun getShortId (kind, fsys, lex): string * location =
   let
