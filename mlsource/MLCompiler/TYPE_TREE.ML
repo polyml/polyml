@@ -35,8 +35,6 @@ functor TYPE_TREE (
 
     structure UTILITIES :
     sig
-        val mapTable: ('a * 'a -> bool) ->
-                       {enter: 'a * 'b -> unit, lookup: 'a -> 'b option}
         val splitString:   string -> { first:string, second:string }
     end;
 
@@ -905,6 +903,40 @@ struct
 
     (* Can this be used to set an eqtype? Used in "where type" constructions in signatures. *)
     fun typePermitsEquality ty = computeEqualityWithinTypeConstructor (ty, fn _ => No, fn _ => NONE, fn _ => ()) <> No
+
+    (* Moved from Utilities.  Can probably be simplified *)
+    fun mapTable (same : 'a * 'a -> bool) : {enter: 'a * 'b -> unit, lookup: 'a -> 'b option} =
+    let
+        val table : ('a * 'b) list ref = ref [];
+
+        (* Don't allow duplicate keys in the list! *)
+        local    
+            fun member (_, [] : ('a * 'b) list) = false
+            |   member (x, h::t) = same (#1 h, x) orelse member (x, t)
+
+            fun delete (_, [] : ('a * 'b) list) = []
+            |   delete (x, h::t) = if same (#1 h, x) then t else h :: delete (x, t)
+        in
+            fun enter (entry as (a: 'a, _: 'b)) : unit =
+            let
+                val list    = !table;
+                val newList = if member (a, list) then delete (a, list) else list;
+            in
+                table := entry :: newList
+            end
+        end
+
+        (* Get a value if it's there *)
+        fun lookup (x : 'a) : 'b option = 
+        let
+            fun search []           = NONE
+            |   search ((a, b) :: T) = if same (a, x) then SOME b else search T;
+        in
+            search (!table)
+        end
+    in
+        {enter = enter, lookup = lookup}
+    end
 
   (* When a datatype is declared we test to see if equality is allowed. The
      types are mutually recursive so value constructors of one type may

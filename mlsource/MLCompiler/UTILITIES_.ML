@@ -52,9 +52,6 @@ sig
     
   val checkForDots: string * lexan * location -> unit;
     
-  val mapTable: ('a * 'a -> bool) ->
-                   {enter: 'a * 'b -> unit, lookup: 'a -> 'b option};
-     
   val splitString: string -> { first:string,second:string }
 
     structure Sharing:
@@ -154,48 +151,6 @@ struct
       else check (i + 1)
   in
     check 1
-  end;
-
-  (* Creates a table which will match values of one type and return
-     corresponding results. *)
-  
-  fun mapTable (same : 'a * 'a -> bool) :
-         {enter: 'a * 'b -> unit, lookup: 'a -> 'b option} =
-  let
-    val table : ('a * 'b) list ref = ref [];
-     
-    (* Don't allow duplicate keys in the list! *)
-    local    
-      fun member (_, [] : ('a * 'b) list) = false
-      |   member (x, h::t) = same (#1 h, x) orelse member (x, t);
-    
-      fun delete (_, [] : ('a * 'b) list) = []
-      |   delete (x, h::t) = if same (#1 h, x) then t else h :: delete (x, t);
-    in  
-      fun enter (entry as (a: 'a, _: 'b)) : unit =
-      let
-    val list    = !table;
-    val newList = if member (a, list) then delete (a, list) else list;
-      in
-    table := entry :: newList
-      end;
-    end;
-
-(* old ...         
-    (* Add a newType entry to the table. *) 
-    fun enter (a, b) = table := (a,b) :: !table;
-... *)
-    
-    (* Get a value if it's there *)
-    fun lookup (x : 'a) : 'b option = 
-    let
-      fun search []           = NONE
-      |   search ((a, b) :: T) = if same (a, x) then SOME b else search T;
-    in
-      search (!table)
-    end;
-  in
-    {enter = enter, lookup = lookup}
   end;
 
    fun splitString s =

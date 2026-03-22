@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009-2015, 2025 David C.J. Matthews
+    Copyright (c) 2009-2015, 2025-6 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -39,11 +39,6 @@ functor COPIER(
         val univLookup: univTable * 'a tag * string -> 'a option;
         val univFold:   univTable * (string * universal * 'a -> 'a) * 'a -> 'a;
     end;
-    
-    structure UTILITIES:
-    sig
-        val splitString: string -> { first:string,second:string }
-    end
 
 sharing STRUCTVALS.Sharing = TYPETREE.Sharing
 
@@ -53,7 +48,7 @@ sharing type
 )
 :COPIERSIG =
 struct
-    open STRUCTVALS TYPETREE UNIVERSALTABLE UTILITIES
+    open STRUCTVALS TYPETREE UNIVERSALTABLE
     open Universal; (* for tag record selectors *)
 
     type tsvEnv = { enterType:   string * typeConstrSet -> unit,
