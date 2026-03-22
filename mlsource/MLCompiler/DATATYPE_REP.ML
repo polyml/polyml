@@ -262,7 +262,7 @@ struct
     (* N.B. The representation for the "context" and "pretty" datatypes is defined in Pretty.sml.
        Any changes here that may affect the representation of a datatype may require
        changes there as well. *)
-    fun createConstructorCode(cs, potentialRecursive) =
+    fun createConstructorCode(cs, potentialRecursive, typeConstr) =
     let
         fun checkArgKind (name, NONE) = (Nullary, name, BadType)
         |   checkArgKind (name, SOME argType) = (getTupleKind argType, name, argType)
@@ -279,19 +279,23 @@ struct
                    then identity functions.  However, if the datatype is recursive, we can have problems in the
                    optimiser/simplifier which can get into a loop.  See Tests/Succeed/Test132.ML. *)
 
-                fun checkRecursive(TypeConstruction{constr, args, ...}) =
-                    (* Consider the type recursive if it references any of the potentially recursive
-                       datatypes.  This is actually more general than we need because the datatype it references
-                       may not actually be mutually recursive.  It is safe to assume it is recursive.
-                       We have to avoid an infinite loop here that could occur if we start by checking a
-                       type constructor that is not actually recursive itself but refers to a constructor
-                       that is. *)
-                    List.exists (isSameTypeIdAs constr) potentialRecursive orelse List.exists checkRecursive args
-                |   checkRecursive(FunctionType{arg, result}) = checkRecursive arg orelse checkRecursive result
-                |   checkRecursive(LabelledRecord fields) = List.exists (checkRecursive o #typeOf) fields
-                |   checkRecursive _ = false
+                fun checkRecursive currentList (TypeConstruction{constr, args, ...}) =
+                    if List.exists (isSameTypeIdAs constr) currentList
+                    then true (* It's recursive or refers to another type that is. *)
+                    else
+                    (
+                        (* Is it on our potential list?  If so look to see if that is recursive or
+                           mutually recursive with the type constructors we've already seen. *)
+                        case List.find(fn (tc, _) => isSameTypeIdAs constr tc) potentialRecursive of
+                            SOME(tc, typ) => checkRecursive (tc::currentList) typ
+                        |   NONE => false
+                    ) orelse List.exists (checkRecursive currentList) args
+
+                |   checkRecursive currentList (FunctionType{arg, result}) = checkRecursive currentList arg orelse checkRecursive currentList result
+                |   checkRecursive currentList (LabelledRecord fields) = List.exists (checkRecursive currentList o #typeOf) fields
+                |   checkRecursive _ _ = false
                 
-                val isRecursive = checkRecursive argType
+                val isRecursive = checkRecursive [typeConstr] argType
             in
                 [createUnaryConstructor(OnlyOne{recursive=isRecursive}, name)]
             end
@@ -393,17 +397,17 @@ struct
     let
         (* Get the type constructors that have only a single unary constructor.  These are
            the ones that could give a problem if they're recursive. *)
-        fun filterTypeConstrs(TypeConstrSet(typeConstr, [Value{typeOf=ValueType(FunctionType _, _), ...}])) = SOME typeConstr
+        fun filterTypeConstrs(TypeConstrSet(typeConstr, [Value{typeOf=ValueType(FunctionType{arg, ...}, _), ...}])) = SOME (typeConstr, arg)
         |   filterTypeConstrs _ = NONE
         val singleUnaries = List.mapPartial filterTypeConstrs constructorSets
         
-        fun getConstrCode(TypeConstrSet(_, constrs)) =
+        fun getConstrCode(TypeConstrSet(typeConstr, constrs)) =
         let
             (* Get the argument types or EmptyType if this is nullary. *)
             fun getConstrType(Value{typeOf=ValueType(FunctionType{arg, ...}, _), name, ...}) = (name, SOME arg)
             |   getConstrType(Value{name, ...}) = (name, NONE)
             val constrTypesAndNames = List.map getConstrType constrs
-            val constrs = createConstructorCode(constrTypesAndNames, singleUnaries)
+            val constrs = createConstructorCode(constrTypesAndNames, singleUnaries, typeConstr)
         in
             constrs
         end
@@ -412,7 +416,7 @@ struct
     end
 
     (* Special case for built-in datatypes. *)
-    fun chooseConstrRepr cs = createConstructorCode(cs, [])
+    fun chooseConstrRepr cs = createConstructorCode(cs, [], undefConstr)
 
    (* RefForm, NilForm and ConsForm are only used for built-in types *)
 
