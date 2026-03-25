@@ -851,7 +851,7 @@ struct
                                 val locs = LEX.locSpan (startLocn, LEX.location lex)
                                 val () = SKIPS.getsym (SYMBOLS.RightCurly, lex);
                             in
-                                (mkLabelledTree (result, frozen, locs), locs)
+                                (PARSETREE.mkLabelledTree (NONE, result, frozen, locs), locs)
                             end
                     end
 
@@ -1122,7 +1122,7 @@ struct
 
 
                                 val locs = LEX.locSpan (startLocn, LEX.location lex) (* Include brackets. *)
-                                val labelled = PARSETREE.mkLabelledTree (labs, true (* always frozen *), locs)
+                                val labelled = PARSETREE.mkLabelledTree (base, labs, true (* always frozen *), locs)
                                 val () = SKIPS.getsym (SYMBOLS.RightCurly, lex);
                             in
                                 (labelled, locs)
