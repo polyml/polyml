@@ -101,7 +101,6 @@ use "mlsource/MLCompiler/TYPEIDCODESIG.sml";
 use "mlsource/MLCompiler/DATATYPE_REP.ML";
 use "mlsource/MLCompiler/VALUE_OPS.ML";
 use "mlsource/MLCompiler/TYPE_TREE.ML";
-use "mlsource/MLCompiler/UTILITIES_.ML";
 use "mlsource/MLCompiler/Utilities.ML";
 use "mlsource/MLCompiler/ExportTree.sml";
 use "mlsource/MLCompiler/ExportTreeStruct.sml";

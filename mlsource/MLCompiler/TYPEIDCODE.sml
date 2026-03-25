@@ -349,7 +349,10 @@ struct
                structure equality. *)
             codeEqDefault
 
-    |   makeEq(_, _, _, _, _) = raise InternalError "Equality for function"
+    |   makeEq(FreeTypeVar _, _, _, _, _) = codeEqDefault (* Explicit type constraint. *)
+
+    |   makeEq(FunctionType _, _, _, _, _) = raise InternalError "makeEq: FunctionType"
+    |   makeEq(BadType, _, _, _, _) = raise InternalError "makeEq: BadType"
 
     and equalityForConstruction(tyConstr as TypeConstrs {identifier=iden,...}, args, level, getTypeValueForID, bvMap, typeVarMap) =
         (* Generate an equality function for a datatype construction. *)

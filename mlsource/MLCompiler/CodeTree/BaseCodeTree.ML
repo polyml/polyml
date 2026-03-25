@@ -2,7 +2,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-22, 2025.
+    Modified David C. J. Matthews 2008-2010, 2013, 2015, 2017-22, 2025-6.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -173,7 +173,8 @@ struct
         argTypes      : (argumentType * codeUse list) list,
         resultType    : argumentType,
         localCount    : int,
-        recUse        : codeUse list
+        recUse        : codeUse list,
+        functionId     : unit ref
     }
 
     and codeAddress = {base: codetree, index: codetree option, offset: int}
@@ -666,12 +667,12 @@ struct
                     arg2 = mapCodetree f arg2, longCall = mapCodetree f longCall }
         |   mapt(AllocateWordMemory { numWords, flags, initial }) =
                 AllocateWordMemory { numWords = mapCodetree f numWords, flags = mapCodetree f flags, initial = mapCodetree f initial }
-        |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
+        |   mapt (Lambda { body, isInline, name, closure, argTypes, resultType, localCount, recUse, functionId }) =
                 Lambda {
                     body = mapCodetree f body, isInline = isInline, name = name,
                     closure = map (deExtract o (mapCodetree f) o Extract) closure,
                     argTypes = argTypes, resultType = resultType, localCount = localCount,
-                    recUse = recUse
+                    recUse = recUse, functionId = functionId
                 }
         |   mapt (Cond(i, t, e)) = Cond(mapCodetree f i, mapCodetree f t, mapCodetree f e)
         |   mapt (BeginLoop{loop, arguments}) =

@@ -47,34 +47,24 @@ structure DATATYPEREP: DATATYPEREPSIG
 
 structure UTILITIES :
 sig
-    type lexan;
-    type location =
-        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
-          endLine: FixedInt.int, endPosition: FixedInt.int }
 
     val noDuplicates: (string * 'a * 'a -> unit) -> 
                        { apply: (string * 'a -> unit) -> unit,
                          enter:  string * 'a -> unit,
-                         lookup: string -> 'a option};
+                         lookup: string -> 'a option}
 
     val searchList: unit -> { apply: (string * 'a -> unit) -> unit,
                             enter:  string * 'a -> unit,
-                            lookup: string -> 'a option };
-
-    val checkForDots:  string * lexan * location -> unit;
+                            lookup: string -> 'a option }
 
     val splitString: string -> { first:string,second:string }
 
-    structure Sharing:
-    sig
-        type lexan = lexan
-    end
 end
 
 structure DEBUG: DEBUG
 
 sharing LEX.Sharing = TYPETREE.Sharing = STRUCTVALS.Sharing = COPIER.Sharing
-       = VALUEOPS.Sharing = UTILITIES.Sharing = PRETTY.Sharing
+       = VALUEOPS.Sharing = PRETTY.Sharing
        = CODETREE.Sharing = DATATYPEREP.Sharing
        = BASEPARSETREE.Sharing = PRINTTREE.Sharing = EXPORTTREE.Sharing
 
@@ -226,7 +216,12 @@ struct
       (* A simpler error message routine for lookup_... where the message
          does not involve pretty-printing anything. *)
       fun giveError (v, lex, line)  =
-        fn message => errorNear (lex, true, v, line, message);
+        fn message => errorNear (lex, true, v, line, message)
+
+        fun checkForDots (name, lex, location) =
+            if CharVector.exists(fn #"." => true | _ => false) name
+            then LEX.errorMessage (lex, location, "qualified name " ^ name ^ " illegal here")
+            else ()
 
       fun checkForBuiltIn (name, v, lex, lineno, isConstr) =
       (* ML97 does not allow the standard constructors to be rebound and does

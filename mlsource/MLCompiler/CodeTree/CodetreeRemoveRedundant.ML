@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2012,13, 17, 20-1, 2025 David C.J. Matthews
+    Copyright (c) 2012,13, 17, 20-1, 2025-6 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -67,7 +67,7 @@ struct
         val locals = Array.array(localCount, [])
         val addLocalUse: int -> codeUse list -> unit = addUsesToArray locals
 
-        fun cleanLambda(lambda as {body, isInline, name, argTypes, resultType, localCount, closure, ...}: lambdaForm,
+        fun cleanLambda(lambda as {body, isInline, name, argTypes, resultType, localCount, closure, functionId, ...}: lambdaForm,
                         lambdaUse) =
         let
             (* Rebuild the closure with the entries actually used. *)
@@ -93,9 +93,17 @@ struct
 
             val resultOfApps =
                 List.foldl
-                    (fn (UseApply (l, _), r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r) []
+                    (fn (UseApply(l, _), r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r) []
             
-            val bodyUse = resultOfApps lambdaUse
+            fun filter(true, true, []) = [UseExport, UseGeneral]
+            |   filter(false, true, []) = [UseGeneral]
+            |   filter(true, false, []) = [UseExport]
+            |   filter(false, false, []) = []
+            |   filter(_, isGen, UseExport :: l) = filter(true, isGen, l)
+            |   filter(isExp, _, UseGeneral :: l) = filter(isExp, true, l)
+            |   filter(isExp, isGen, a (* UseApply, UseField *) :: l) = a :: filter(isExp, isGen, l)
+            
+            val bodyUse = filter(false, false, resultOfApps lambdaUse)
 
             val bodyCode = cleanProc(body, bodyUse, lookup, addRef, localCount, checkArg)
             val recursiveApps = !recursiveRefRef
@@ -148,7 +156,7 @@ struct
                 in
                     {body=bodyCode, isInline=isInline, name=name,
                        closure=newClosure, argTypes=newArgTypes, resultType=resultType,
-                       localCount=localCount, recUse = recursiveApps} : lambdaForm
+                       localCount=localCount, recUse = recursiveApps, functionId=functionId} : lambdaForm
                 end
         end
 

@@ -40,27 +40,19 @@ structure PARSETYPE : PARSETYPESIG
 
 structure UTILITIES :
 sig
-    type lexan
-    type location =
-        { file: string, startLine: FixedInt.int, startPosition: FixedInt.int,
-          endLine: FixedInt.int, endPosition: FixedInt.int }
-
     val searchList: unit -> { apply: (string * 'a -> unit) -> unit,
                             enter:  string * 'a -> unit,
                             lookup: string -> 'a option }
-    
-    val checkForDots: string * lexan * location -> unit
 
     val noDuplicates: (string * 'a * 'a -> unit) -> 
                        { apply: (string * 'a -> unit) -> unit,
                          enter:  string * 'a -> unit,
-                         lookup: string -> 'a option };
-    
-end;
+                         lookup: string -> 'a option }
+end
 
 sharing STRUCTVALS.Sharing = TYPETREE.Sharing = PARSETREE.Sharing = STRUCTURES.Sharing
       = LEX.Sharing = SIGNATURES.Sharing
-      = UTILITIES = PARSETYPE.Sharing
+      = PARSETYPE.Sharing
       = SYMBOLS.Sharing = SKIPS.Sharing
 
 sharing type SYMBOLS.sys = SYMSET.sys
@@ -132,13 +124,22 @@ struct
       lookupTvar    = lookupTvar
     }
 
-  fun getLongId (kind, fsys, lex): string * location =
-    SKIPS.getid (kind, fsys, lex);
+    fun checkForDots (name, lex, location) =
+        if CharVector.exists(fn #"." => true | _ => false) name
+        then LEX.errorMessage (lex, location, "qualified name " ^ name ^ " illegal here")
+        else ()
+
+    fun checkAlphanumeric(kind, name, lex, location) =
+        if CharVector.all LEX.isAlphaNumeric name
+        then ()
+        else LEX.errorMessage (lex, location, concat["Symbolic names are not allowed for ", kind, ": ", name])
+
+  fun getLongId (kind, fsys, lex): string * location = SKIPS.getid (kind, fsys, lex);
 
   fun getShortId (kind, fsys, lex): string * location =
   let
     val idLoc as (iden, location) = SKIPS.getid (kind, fsys, lex);
-    val () = UTILITIES.checkForDots (iden, lex, location);
+    val () = checkForDots (iden, lex, location);
   in
     idLoc
   end;
@@ -1737,7 +1738,8 @@ struct
 
                 fun doStructure () =
                 let
-                    val idAndLoc as (_, idLoc)  = getShortId (variableSys, empty, lex)
+                    val idAndLoc as (structName, idLoc)  = getShortId (variableSys, empty, lex)
+                    val () = checkAlphanumeric("structures", structName, lex, idLoc)
                     val () = SKIPS.getsym (SYMBOLS.Colon, lex)
                     val (sgn, sgnLoc) = parseSignature (fsys ++ startSigEndAndSy) lex env
                     val locs = LEX.locSpan (idLoc, sgnLoc)
@@ -1827,7 +1829,8 @@ struct
         val () = LEX.insymbol lex
         fun doSigDec () =
         let
-            val idAndLoc as (_, idLoc) = getShortId (variableSys, empty, lex);
+            val idAndLoc as (sigName, idLoc) = getShortId (variableSys, empty, lex)
+            val () = checkAlphanumeric("signatures", sigName, lex, idLoc)
             val () = SKIPS.getsym (SYMBOLS.EqualsSign, lex)
             val (sgn, sigLoc) = parseSignature (fsys ++ endAndSy) lex env
             val locs = LEX.locSpan (idLoc, sigLoc)
@@ -1892,7 +1895,7 @@ struct
                     let (* functor application *)
                         val () = LEX.insymbol lex
                         (* Functor names must not be qualified. *)
-                        val () = UTILITIES.checkForDots (iden, lex, idLoc);
+                        val () = checkForDots (iden, lex, idLoc);
                         val parameter =
                             case LEX.sy lex of
                                 RightParen => (* Empty parameter list *)
@@ -1960,7 +1963,8 @@ struct
                 fun doStrDec () =
                 let (* Read strId <<: sig>> = str *)
                     (* First the identifier *)
-                    val idAndLoc as (_, idLoc) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
+                    val idAndLoc as (structName, idLoc) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex)
+                    val () = checkAlphanumeric("structures", structName, lex, idLoc)
                     (* Next the signature if there is one. *)
                     val sgn =
                         case LEX.sy lex of
@@ -2020,7 +2024,8 @@ struct
         fun doFunctDec () : functorBind * location * unit =
         let (* Read fncId (<<paramSpec>> ) <<: sig>> = str *)
             (* First the identifier *)
-            val (strId, idLocn) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex);
+            val (strId, idLocn) = getShortId (declarableVarSys, fsys ++ colonEqualsSignSy, lex)
+            val () = checkAlphanumeric("functors", strId, lex, idLocn)
             val () = SKIPS.getsym (SYMBOLS.LeftParen, lex);
             (* Now the parameters *)
             val tsys = fsys ++ rightParenCommaSy;
@@ -2043,7 +2048,8 @@ struct
                 (* name : sigexp *)
                 else
                 let
-                    val (strId, _) = getShortId (declarableVarSys, tsys ++ colon, lex);
+                    val (strId, idLocn) = getShortId (declarableVarSys, tsys ++ colon, lex)
+                    val () = checkAlphanumeric("structures", strId, lex, idLocn)
                     val () = SKIPS.getsym (SYMBOLS.Colon, lex)
  
                     (* Next the signature. *)

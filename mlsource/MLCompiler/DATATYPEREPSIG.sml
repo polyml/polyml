@@ -1,5 +1,5 @@
 (*
-    Copyright (c) David C. J. Matthews 2009, 2025.
+    Copyright (c) David C. J. Matthews 2009, 2025, 2026.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -24,8 +24,13 @@ sig
     type typeConstrSet
     type typeId
     type level
+    type typeConstrs
 
-    val chooseConstrRepr: (string * types option) list * int -> { constrs: codetree list }
+    (* Generate code for the constructors after choosing the optimum representation. *)
+    (* Process a single datatype constructor: used for built-in datatypes. *)
+    val chooseConstrRepr: (string * types option) list -> codetree list
+    (* Process one or more datatypes.  Used for datatype declarations. *)
+    val createValueConstructorCode: typeConstrSet list -> codetree list list
 
     type representations
     val RefForm:   representations;
@@ -57,5 +62,6 @@ sig
         type typeConstrSet  = typeConstrSet
         type typeId         = typeId
         type level          = level
+        type typeConstrs    = typeConstrs
     end
 end;

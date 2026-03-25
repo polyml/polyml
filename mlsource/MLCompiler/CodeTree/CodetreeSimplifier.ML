@@ -83,8 +83,13 @@ struct
         enterAddr: int * (envGeneral * envSpecial) -> unit,
         nextAddress: unit -> int,
         reprocess: bool ref,
-        maxInlineSize: int
+        maxInlineSize: int,
+        currentInline: unit ref list
     }
+
+    (* This exception is raised if we recursively expand an inline function.  This can only
+       occur in rare cases (See Succeed/Tests/Test132.ML for examples. *)
+    exception RecursiveInlineExpansion of unit ref
 
     fun envGeneralToCodetree(EnvGenLoad ext) = Extract ext
     |   envGeneralToCodetree(EnvGenConst w) = Constnt w
@@ -684,8 +689,8 @@ struct
             ((EnvGenLoad(LoadLocal newAddr), spec), RevList(mkDec(newAddr, gen) :: decs))
         end
 
-    and simpLambda({body, isInline, name, argTypes, resultType, closure, localCount, ...},
-                  { lookupAddr, reprocess, maxInlineSize, ... }, myOldAddrOpt, myNewAddrOpt) =
+    and simpLambda({body, isInline, name, argTypes, resultType, closure, localCount, functionId, ...},
+                  { lookupAddr, reprocess, maxInlineSize, currentInline, ... }, myOldAddrOpt, myNewAddrOpt) =
         let
             (* A new table for the new function. *)
             val oldAddrTab = Array.array (localCount, NONE)
@@ -751,7 +756,8 @@ struct
                         enterAddr = setTab, lookupAddr = localOldAddr,
                         nextAddress=mkAddr,
                         reprocess = reprocess,
-                        maxInlineSize = maxInlineSize
+                        maxInlineSize = maxInlineSize,
+                        currentInline = currentInline
                     })
             end
 
@@ -804,7 +810,8 @@ struct
                     argTypes      = argTypes,
                     resultType    = resultType,
                     localCount    = localCount,
-                    recUse        = []
+                    recUse        = [],
+                    functionId    = functionId
                 }
 
             (* The optimiser checks the size of a function and decides whether it can be inlined.
@@ -822,53 +829,23 @@ struct
             )
         end
 
-    and simpFunctionCall(function, argList, resultType, context as { reprocess, maxInlineSize, ...}, tailDecs) =
+    and simpFunctionCall(function, argList, resultType, context as { reprocess, maxInlineSize, currentInline, ...}, tailDecs) =
     let
         (* Function call - This may involve inlining the function. *)
 
         (* Get the function to be called and see if it is inline or
            a lambda expression. *)
         val (genFunct, decsFunct, specFunct) = simpSpecial(function, context, tailDecs)
-        (* We have to make a special check here that we are not passing in the function
-           we are trying to expand.  This could result in an infinitely recursive expansion.  It is only
-           going to happen in very special circumstances such as a definition of the Y combinator.
-           If we see that we don't attempt to expand inline.  It could be embedded in a tuple
-           or the closure of a function as well as passed directly. See Tests/Succeed/Test132.ML *)
-        val isRecursiveArg =
-            case function of
-                Extract extOrig =>
-                    let
-                        fun containsFunction(Extract thisArg, v) = (v orelse thisArg = extOrig, FOLD_DESCEND)
-                        |   containsFunction(Lambda{closure, ...}, v) =
-                                (* Only the closure, not the body *)
-                                (foldl (fn (c, w) => foldtree containsFunction w (Extract c)) v closure, FOLD_DONT_DESCEND)
-                        |   containsFunction(Eval _, v) = (v, FOLD_DONT_DESCEND) (* OK if it's called *)
-                        |   containsFunction(_, v) = (v, FOLD_DESCEND)
-                    in
-                        List.exists(fn (c, _) => foldtree containsFunction false c) argList
-                    end
-            |   Constnt (cOrig, _) =>
-                    if Address.isShort cOrig then false (* Functors are short constants and "always inline" *)
-                    else
-                    let
-                        fun containsFunction(Constnt(thisC, _), v) = (v orelse wordEq(cOrig, thisC), FOLD_DESCEND)
-                        |   containsFunction(Lambda{closure, ...}, v) =
-                                (* Only the closure, not the body *)
-                                (foldl (fn (c, w) => foldtree containsFunction w (Extract c)) v closure, FOLD_DONT_DESCEND)
-                        |   containsFunction(Eval _, v) = (v, FOLD_DONT_DESCEND) (* OK if it's called *)
-                        |   containsFunction(_, v) = (v, FOLD_DESCEND)
-                    in
-                       List.exists(fn (c, _) => foldtree containsFunction false c) argList 
-                    end
-            |   _ => false
-    in
-        case (specFunct, genFunct, isRecursiveArg) of
-            (EnvSpecInlineFunction({body=lambdaBody, localCount, argTypes, ...}, functEnv), _, false) =>
+        
+        val inlineExpansion =
+        case specFunct of
+            EnvSpecInlineFunction({body=lambdaBody, localCount, argTypes, functionId, ...}, functEnv) =>
             let
+                (* Prevent recursive expansion. *)
+                val _ = if List.exists(fn i => i = functionId) currentInline then raise RecursiveInlineExpansion functionId else ()
                 val _ = List.length argTypes = List.length argList
                             orelse raise InternalError "simpFunctionCall: argument mismatch"
-                val () = reprocess := true (* If we expand inline we have to reprocess *)
-                and { nextAddress, reprocess, ...} = context
+                val { nextAddress, reprocess, ...} = context
 
                 (* Expand a function inline, either one marked explicitly to be inlined or one detected as "small". *)
                 (* Calling inline proc or a lambda expression which is just called.
@@ -897,7 +874,6 @@ struct
                     val copiedArgs = bindings
                 end
 
-                local
                     fun localOldAddr(LoadLocal addr) = valOf(Array.sub(localVec, addr))
                     |   localOldAddr(LoadArgument addr) = getParameter addr
                     |   localOldAddr(LoadClosure closureEntry) = functEnv closureEntry
@@ -908,29 +884,27 @@ struct
                     {
                         lookupAddr=localOldAddr, enterAddr=setTabForInline,
                         nextAddress=nextAddress, reprocess = reprocess,
-                        maxInlineSize = maxInlineSize
+                        maxInlineSize = maxInlineSize, currentInline = functionId :: currentInline
                     }
-                in
-                    val (cGen, cDecs, cSpec) = simpSpecial(lambdaBody,lambdaContext, copiedArgs)
-                end
             in
-                (cGen, cDecs, cSpec)
+                SOME(simpSpecial(lambdaBody, lambdaContext, copiedArgs))
+                    handle exn as RecursiveInlineExpansion fId =>
+                        (* We need to discard the attempt to expand inline and instead *)
+                        if fId = functionId
+                        then NONE
+                        else raise exn
             end
 
-        |   (_, gen as Constnt _, _) => (* Not inlinable - constant function. *)
-            let
-                val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
-                val evCopiedCode =
-                    Eval {function = gen, argList = copiedArgs, resultType=resultType}
-            in
-                (evCopiedCode, decsFunct, EnvSpecNone)
-            end
+        |   _ => NONE
+    in
+        case inlineExpansion of
+            SOME expansion => (reprocess := true; expansion)
 
-        |   (_, gen, _) => (* Anything else. *)
+        |   NONE => (* Not inlineable or failed. *)
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
                 val evCopiedCode = 
-                    Eval {function = gen, argList = copiedArgs, resultType=resultType}
+                    Eval {function = genFunct, argList = copiedArgs, resultType=resultType}
             in
                 (evCopiedCode, decsFunct, EnvSpecNone)
             end
@@ -1848,7 +1822,7 @@ struct
         val (gen, RevList bindings, spec) =
             simpSpecial(code,
                 {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr,
-                 reprocess = reprocess, maxInlineSize = maxInlineSize}, RevList[])
+                 reprocess = reprocess, maxInlineSize = maxInlineSize, currentInline = []}, RevList[])
     in
         ((gen, List.rev bindings, spec), ! localAddressAllocator, !reprocess)
     end

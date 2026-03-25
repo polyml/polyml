@@ -1404,7 +1404,7 @@ struct
                  ]
             (* This representation must match the representation defined in DEBUGGER_.sml. *)
             val numConstrs = List.length constrs
-            val {constrs=constrReps, ...} = chooseConstrRepr(constrs, 0)
+            val constrReps = chooseConstrRepr constrs
             val constructors =
                 ListPair.map (fn ((s,t), code) =>
                     mkGconstr(s, ValueType(valOf t ->> environEntryType, []), code, false, numConstrs, declInBasis))
@@ -1628,7 +1628,7 @@ struct
                  ];
             (* This representation must match the representation defined in ExportTree.sml. *)
             val numConstrs = List.length constrs
-            val {constrs=constrReps, ...} = chooseConstrRepr(constrs, 0)
+            val constrReps = chooseConstrRepr constrs
             fun valName (Value{name, ...}) = name
             val constructors =
                 ListPair.map (fn ((s,t), code) =>

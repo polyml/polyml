@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2015, 2020 David C.J. Matthews
+    Copyright (c) 2015, 2020, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -129,7 +129,7 @@ struct
 
         |   checkCode _ = NONE
 
-        and checkLambda({body, closure, localCount, name, argTypes, resultType, ...}) =
+        and checkLambda({body, closure, localCount, name, argTypes, resultType, functionId, ...}) =
         (* Lambdas - check the function body and any recursive uses. *)
         let
             val recNeedsClosure = ref false
@@ -138,7 +138,8 @@ struct
             val processedBody = checkBody(body, refToClosure, refToRecursive, localCount)
         in
             {body=processedBody, isInline=DontInline, closure=closure, localCount=localCount, name=name,
-             argTypes=argTypes, resultType=resultType, recUse=if !recNeedsClosure then [UseGeneral] else []}
+             argTypes=argTypes, resultType=resultType, recUse=if !recNeedsClosure then [UseGeneral] else [],
+             functionId=functionId}
         end
 
         and checkMapCode code = mapCodetree checkCode code
@@ -275,7 +276,7 @@ struct
 
         |   processCode _ = NONE
 
-        and processLambdaWithClosure({body, closure, localCount, name, argTypes, resultType, ...}) =
+        and processLambdaWithClosure({body, closure, localCount, name, argTypes, resultType, functionId, ...}) =
         (* Lambdas that are not to be lifted.  They may still have functions inside that can
            be lifted.  They may also refer to functions that have been lifted. *)
         let
@@ -303,7 +304,7 @@ struct
             val processedBody = processBody(body, closureRef, fn () => [], localCount, debugArgs)
         in
             {body=processedBody, isInline=DontInline, closure=extractClosure newClosure, localCount=localCount, name=name,
-             argTypes=argTypes, resultType=resultType, recUse=[]}
+             argTypes=argTypes, resultType=resultType, recUse=[], functionId=functionId}
         end
 
         and liftLambdas (bindings: (lambdaForm * int option) list) =
@@ -375,7 +376,7 @@ struct
                 val closureSize = List.length transClosure
 
                 (* Process the function bodies. *)
-                fun transformLambda({body, closure, localCount, name, argTypes, resultType, ...}, addr) =
+                fun transformLambda({body, closure, localCount, name, argTypes, resultType, functionId, ...}, addr) =
                 let
                     val argSize = List.length argTypes
                     val recArgs = List.tabulate(closureSize, fn n => LoadArgument(n+argSize))
@@ -418,7 +419,8 @@ struct
                     val lambda = 
                         {body=processedBody, isInline=DontInline, closure=extractClosure residual,
                          localCount=localCount, name=name,
-                         argTypes=argTypes @ extraArgs, resultType=resultType, recUse=[]}
+                         argTypes=argTypes @ extraArgs, resultType=resultType, recUse=[],
+                         functionId=functionId}
                 in
                     { lambda=lambda, addr=getOpt(addr, 0), use=[] }
                 end
@@ -452,7 +454,8 @@ struct
                     argTypes = [(GeneralType, [])],
                     resultType = GeneralType,
                     localCount = maxAddr+1,
-                    recUse = []
+                    recUse = [],
+                    functionId = ref ()
                 }
                 val props = Backend.codeGenerate(lambda, debugArgs, closure)
                 val code: unit -> machineWord = RunCall.unsafeCast closure

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2009, 2015-16 David C.J. Matthews
+    Copyright (c) 2009, 2015-16, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -71,6 +71,9 @@ sig
        and ends at the end of the second.  Used to combine the locations of
        individual lexical units into a location for a larger syntactic unit. *)
     val locSpan: location * location -> location
+
+    (* Export this so it can be used to check module names. *)
+    val isAlphaNumeric: char -> bool
 
     (* Types that can be shared. *)
     structure Sharing:

@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013-2015, 2020, 2025 David C.J. Matthews
+    Copyright (c) 2013-2015, 2020, 2025, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -967,20 +967,16 @@ struct
             val eqStatus = if isAbsType then absEq else List.map tcEquality typeCons
 
             local
-                fun getConstrCode(DatatypeBind {tcon = ref (tc as TypeConstrSet(_, constrs)), typeVars, ...}, eqStatus) =
-                let
-                    val arity = List.length typeVars
-                    (* Get the argument types or EmptyType if this is nullary. *)
-                    fun getConstrType(Value{typeOf=ValueType(FunctionType{arg, ...}, _), name, ...}) = (name, SOME arg)
-                    |   getConstrType(Value{name, ...}) = (name, NONE)
-                    val constrTypesAndNames = List.map getConstrType constrs
-                    val {constrs} = chooseConstrRepr(constrTypesAndNames, arity)
-                in
-                    ({typeConstr=tc, eqStatus=eqStatus}, constrs)
-                end
+                fun getConstructorSets(DatatypeBind {tcon = ref tcSet, ...}) = tcSet
+                val constructorSets = List.map getConstructorSets typelist
             in
-                val constrAndBoxSizeCode = ListPair.mapEq getConstrCode (typelist, eqStatus)
-                val (tcEqBoxSize, constrsCode) = ListPair.unzip constrAndBoxSizeCode
+                val constrsCode = createValueConstructorCode constructorSets
+            end
+
+            local
+                fun getConstrCode(DatatypeBind {tcon = ref tc, ...}, eqStatus) = ({typeConstr=tc, eqStatus=eqStatus})
+            in
+                val tcEqBoxSize = ListPair.mapEq getConstrCode (typelist, eqStatus)
             end
 
             local
