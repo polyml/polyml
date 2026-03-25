@@ -93,9 +93,17 @@ struct
 
             val resultOfApps =
                 List.foldl
-                    (fn (UseApply (l, _), r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r) []
+                    (fn (UseApply(l, _), r) => l @ r | (UseExport, r) => UseExport :: r | (_, r) => UseGeneral :: r) []
             
-            val bodyUse = resultOfApps lambdaUse
+            fun filter(true, true, []) = [UseExport, UseGeneral]
+            |   filter(false, true, []) = [UseGeneral]
+            |   filter(true, false, []) = [UseExport]
+            |   filter(false, false, []) = []
+            |   filter(_, isGen, UseExport :: l) = filter(true, isGen, l)
+            |   filter(isExp, _, UseGeneral :: l) = filter(isExp, true, l)
+            |   filter(isExp, isGen, a (* UseApply, UseField *) :: l) = a :: filter(isExp, isGen, l)
+            
+            val bodyUse = filter(false, false, resultOfApps lambdaUse)
 
             val bodyCode = cleanProc(body, bodyUse, lookup, addRef, localCount, checkArg)
             val recursiveApps = !recursiveRefRef
