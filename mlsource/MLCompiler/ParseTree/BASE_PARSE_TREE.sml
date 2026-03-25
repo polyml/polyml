@@ -189,7 +189,13 @@ struct
     |   Labelled            of
         (* Labelled record & the entry in the list. "frozen" is false if it's
            a pattern with "...". *)
-            { recList: labelRecEntry list, frozen: bool, expType: types ref, location: location }
+        {
+            base: (parsetree * location) option,
+            recList: labelRecEntry list,
+            frozen: bool,
+            expType: types ref,
+            location: location
+        }
 
     |   Selector            of
             { name: string, labType: types, typeof: types, location: location }
