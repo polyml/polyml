@@ -1639,6 +1639,8 @@ struct
                         end
                         else
                         (
+                            (* Check for explicit free variables and also raise any local implicit variables
+                               out to the next level. They cannot be made polymorphic at this level. *)
                             if containsLocalFreeVariables(typeOf, newLevel)
                             then errorNear (lex, true, v, line, "Explicit type variables cannot be generalised")
                             else ();

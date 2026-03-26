@@ -2784,16 +2784,24 @@ struct
     end (*  end allowGeneralisation *)
 
     (* See if the type contains non-unifiable i.e. explicit type variables but it's an expansive context. *)
-    fun containsLocalFreeVariables(t, level) =
+    fun containsLocalFreeVariables(t, level: int) =
     let
-        fun checkFree(TypeVar(TypeVariable{link=ref l, ...}), _) v =
-            (
+        fun checkFree(TypeVar(TypeVariable{link=ref l, level=levRef, ...}), _) v =
+            let
+                (* Nongeneralisable type variables at this level have to be raised out to the
+                   next level, *)
+                val (levCh, lev) = followRefChainToRef levRef
+                val () =
+                    case lev of
+                        NotGeneralisable l => if l = level then levCh := ChainEnd(NotGeneralisable(l-1)) else ()
+                    |   Generalisable => ()
+            in
                 case followRefChainToEnd l of
                     NONE => v
                 |   SOME(SimpleInstance i) => checkFree (i, fn _ => NONE) v
                 |   SOME(Instance inst) => checkFree inst v
 
-            )
+            end
 
         |   checkFree(BoundTypeVar (_, index), bvMap) v =
             (
