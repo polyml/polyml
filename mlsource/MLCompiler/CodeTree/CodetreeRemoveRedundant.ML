@@ -24,9 +24,8 @@ functor CodetreeRemoveRedundant(
     sig
         type codetree
         type loadForm
-        type codeUse
-        val cleanProc : (codetree * codeUse list * (int -> loadForm) * int) -> codetree
-        structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
+        val cleanProc : (codetree * (int -> loadForm) * int) -> codetree
+        structure Sharing: sig type codetree = codetree and loadForm = loadForm end
     end
 =
 struct
@@ -409,8 +408,8 @@ struct
     end (* cleanProc *)
 
     val cleanProc =
-        fn (code, procUse, prev, localCount) =>
-            cleanProc(code, procUse, fn (i, _) => prev i, fn _ => (), localCount, fn _ => ())
+        fn (code, prev, localCount) =>
+            cleanProc(code, [UseExport], fn (i, _) => prev i, fn _ => (), localCount, fn _ => ())
 
     structure Sharing =
     struct

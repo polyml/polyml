@@ -25,9 +25,8 @@ functor CodetreeOptimiser(
     sig
         type codetree
         type loadForm
-        type codeUse
-        val cleanProc : (codetree * codeUse list * (int -> loadForm) * int) -> codetree
-        structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
+        val cleanProc : (codetree * (int -> loadForm) * int) -> codetree
+        structure Sharing: sig type codetree = codetree and loadForm = loadForm end
     end
 
     structure Simplifier:
@@ -1573,8 +1572,7 @@ struct
                 val simpCode = Simplifier.specialToGeneral simpCode
                 val () = if printCodeTree then compilerOut(Pretty.PrettyString "Output of simplifier") else ()
                 val () = if printCodeTree then compilerOut (BaseCodeTree.pretty simpCode) else ()
-                val preOptCode =
-                    RemoveRedundant.cleanProc(simpCode, [UseExport], topLevel, simpCount)
+                val preOptCode = RemoveRedundant.cleanProc(simpCode, topLevel, simpCount)
                 (* Print the code with the use information before it goes into the optimiser. *)
                 val () = if printCodeTree then compilerOut(Pretty.PrettyString "Output of cleaner") else ()
                 val () = if printCodeTree then compilerOut (BaseCodeTree.pretty preOptCode) else ()

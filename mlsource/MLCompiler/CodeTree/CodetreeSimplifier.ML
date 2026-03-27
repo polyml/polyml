@@ -33,9 +33,8 @@ functor CodetreeSimplifier(
     sig
         type codetree
         type loadForm
-        type codeUse
-        val cleanProc : (codetree * codeUse list * (int -> loadForm) * int) -> codetree
-        structure Sharing: sig type codetree = codetree and loadForm = loadForm and codeUse = codeUse end
+        val cleanProc : (codetree * (int -> loadForm) * int) -> codetree
+        structure Sharing: sig type codetree = codetree and loadForm = loadForm end
     end
 
     structure Debug: DEBUG
@@ -785,7 +784,7 @@ struct
             val cleanBody =
                 if isNowInline = DontInline
                 then newCode
-                else RemoveRedundant.cleanProc(newCode, [UseExport], LoadClosure, localCount)
+                else RemoveRedundant.cleanProc(newCode, LoadClosure, localCount)
 
             (* The optimiser checks the size of a function and decides whether it can be inlined.
                However if we have expanded some other inlines inside the body it may now be too
