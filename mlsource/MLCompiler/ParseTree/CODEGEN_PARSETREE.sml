@@ -586,9 +586,14 @@ struct
                     (selDecs, #load dec level :: tupleElems))) ([], []) (TYPETREE.recordFields expType)
 
             val allDecs =
-                List.foldr (fn (dec, decs) => #dec dec @ decs) [] baseDec @
-                List.foldr (fn (dec, decs) => #dec dec @ decs) [] selDecs @
-                List.foldr (fn ((_, dec), decs) => #dec dec @ decs) [] updateDecs
+                let
+                    (* Build the list from the back to the front to minimize traversals and temporary lists. *)
+                    val decs = List.foldr (fn ((_, dec), xs) => #dec dec @ xs) [] updateDecs
+                    val decs = List.foldr (fn (dec, xs) => #dec dec @ xs) decs selDecs
+                    val decs = List.foldr (fn (dec, xs) => #dec dec @ xs) decs baseDec
+                in
+                    decs
+                end
 
             val tuple = mkTuple tupleElems
         in
