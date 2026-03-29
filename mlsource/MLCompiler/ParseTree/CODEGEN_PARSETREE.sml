@@ -538,38 +538,68 @@ struct
     |   codeGenerate(TupleTree{fields, ...}, context as { debugEnv, ...}) = (* Construct a vector of objects. *)
             (mkTuple(map (fn x => codegen (x, context)) fields), debugEnv)
 
-    |   codeGenerate(Labelled {recList = [{valOrPat, ...}], ...}, context) =
+    |   codeGenerate(Labelled {base = NONE, recList = [{valOrPat, ...}], ...}, context) =
             codeGenerate (valOrPat, context) (* optimise unary records *)
 
-    |   codeGenerate(Labelled {recList, expType=ref expType, ...}, context as { level, mkAddr, debugEnv, ...}) =
+    |   codeGenerate(Labelled {base, recList, expType=ref expType, ...}, context as {level, mkAddr, debugEnv, ...}) =
         let
             (* We must evaluate the expressions in the order they are
                written. This is not necessarily the order they appear
                in the record. *)
-            val recordSize = length recList; (* The size of the record. *)
-    
+
             (* First declare the values as local variables. *)
             (* We work down the list evaluating the expressions and putting
                the results away in temporaries. When we reach the end we
                construct the tuple by asking for each entry in turn. *) 
-            fun declist [] look = ([], mkTuple (List.tabulate (recordSize, look)))
-      
-            |   declist ({name, valOrPat, ...} :: t) look =
-                let
-                    val thisDec = 
-                        multipleUses (codegen (valOrPat, context), fn () => mkAddr 1, level);
-        
-                    val myPosition = entryNumber (name, expType);
-        
-                    fun lookFn i =
-                        if i = myPosition then #load thisDec (level) else look i
-                    val (otherDecs, tuple) = declist t lookFn
-                in
-                    (#dec thisDec @ otherDecs, tuple)
-                end
+
+            val baseDec =
+                (case base of
+                    NONE => []
+                |   SOME (baseExp, _) => [multipleUses (codegen (baseExp, context), fn () => mkAddr 1, level)]);
+            val updateDecs = List.map (fn {name, valOrPat, ...} =>
+                (name, multipleUses (codegen (valOrPat, context), fn () => mkAddr 1, level))) recList
+
+
+            val (selDecs, tupleElems) = List.foldr (fn ({name as labelName, typeOf as labelType}, (selDecs, tupleElems)) =>
+                (case List.find (fn (name, _) => labelName = name) updateDecs of
+                    NONE => (* The label is not in the update list; it must be in a nonempty base. *)
+                    let
+                        val baseExp =
+                            (case base of
+                                NONE => raise Misc.InternalError "codeGenerate Labelled - base expected"
+                            |   SOME (baseExp, _) => baseExp);
+
+                        val selector = Selector {
+                            name = labelName,
+                            labType = expType,
+                            typeof = mkFunctionType (expType, labelType),
+                            location = LEX.nullLocation
+                        }
+
+                        val selectorApplic = Applic {
+                          f = selector,
+                          arg = baseExp,
+                          location = LEX.nullLocation,
+                          isInfix = false,
+                          expType = ref (SimpleInstance labelType)
+                        }
+
+                        val dec = multipleUses (codegen (selectorApplic, context), fn () => mkAddr 1, level)
+                    in
+                        (dec :: selDecs, #load dec level :: tupleElems)
+                    end
+                |   SOME (_, dec) => (* The label is in the update list. *)
+                    (selDecs, #load dec level :: tupleElems))) ([], []) (TYPETREE.recordFields expType)
+
+            val allDecs =
+                List.foldr (fn (dec, decs) => #dec dec @ decs) [] baseDec @
+                List.foldr (fn (dec, decs) => #dec dec @ decs) [] selDecs @
+                List.foldr (fn ((_, dec), decs) => #dec dec @ decs) [] updateDecs
+
+            val tuple = mkTuple tupleElems
         in
             (* Create the record and package it up as a block. *)
-            (mkEnv (declist recList (fn _ => raise Misc.InternalError "missing in record")), debugEnv)
+            (mkEnv (allDecs, tuple), debugEnv)
         end
 
     |   codeGenerate(c as Selector {name, labType, location, ...}, { decName, lex, debugEnv, ...}) =
