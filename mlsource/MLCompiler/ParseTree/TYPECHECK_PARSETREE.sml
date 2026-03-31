@@ -867,7 +867,7 @@ struct
                 SimpleInstance tupleType
             end
           
-        |   assValues _ (v as Labelled {recList, frozen, expType, ...}) =
+        |   assValues _ (v as Labelled {base, recList, frozen, expType, location, ...}) =
             let
                 (* Process each item in the list. *)              
                 fun labEntryToLabType {name, valOrPat, expType, ...} =
@@ -877,10 +877,26 @@ struct
                     expType := ty;
                     {name = name, typeOf = ty }
                 end
-            
-              val expressionType =
-                mkLabelled 
-                    (sortLabels (map labEntryToLabType recList), frozen) (* should always be true *)
+
+                val expressionType =
+                    mkLabelled (sortLabels (map labEntryToLabType recList), not (Option.isSome base))
+                val () =
+                    (case base of
+                      NONE => ()
+                    | SOME (base, baseLoc) =>
+                        let val baseType = assValues v base in
+                            (case unifyTypes (baseType, SimpleInstance expressionType) of
+                             NONE => ()
+                            | SOME report =>
+                                (typeMismatch ("Type mismatch between the base record and its updated fields.",
+                                    valTypeMessage (lex, typeEnv) ("base:", base, baseType),
+                                    PrettyBlock(0, false, [], [
+                                        PrettyString "updated fields:",
+                                        PrettyBreak(1, 0),
+                                        display(SimpleInstance expressionType, 10000 (* All *), typeEnv)
+                                    ]),
+                                    unifyErrorReport (lex, typeEnv) report, lex, location, foundNear v)))
+                        end)
             in
                 expType := expressionType;
                 SimpleInstance expressionType

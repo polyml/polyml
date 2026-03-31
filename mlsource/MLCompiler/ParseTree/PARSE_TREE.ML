@@ -387,9 +387,10 @@ struct
           fullLoc     = fullLoc
         };
 
-    fun mkLabelledTree (recList, frozen, location) : parsetree = 
+    fun mkLabelledTree (base, recList, frozen, location) : parsetree =
      Labelled
        {
+         base = base,
          recList = recList,
          frozen  = frozen,
          expType  = ref BadType,

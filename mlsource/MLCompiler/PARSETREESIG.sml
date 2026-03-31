@@ -113,7 +113,7 @@ sig
     val mkDatatypeBinding : string * parseTypeVar list * valueConstr list * location * location -> datatypebind
     val mkValueConstr : string * typeParsetree option * location -> valueConstr
     val mkExBinding : string * parsetree * typeParsetree option * location * location -> exbind;
-    val mkLabelledTree : labelRecEntry list * bool * location -> parsetree;
+    val mkLabelledTree : (parsetree * location) option * labelRecEntry list * bool * location -> parsetree;
     val mkLabelRecEntry: string * location * parsetree * location -> labelRecEntry
     val mkSelector : string * location -> parsetree;
     val mkRaise : parsetree * location -> parsetree;
