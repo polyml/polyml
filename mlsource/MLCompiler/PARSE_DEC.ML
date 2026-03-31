@@ -140,7 +140,7 @@ struct
   fun getShortId (kind, fsys, lex): string * location =
   let
     val idLoc as (iden, location) = SKIPS.getid (kind, fsys, lex);
-    val () = UTILITIES.checkForDots (iden, lex, location);
+    val () = checkForDots (iden, lex, location);
   in
     idLoc
   end;
@@ -1896,7 +1896,7 @@ struct
                     let (* functor application *)
                         val () = LEX.insymbol lex
                         (* Functor names must not be qualified. *)
-                        val () = UTILITIES.checkForDots (iden, lex, idLoc);
+                        val () = checkForDots (iden, lex, idLoc);
                         val parameter =
                             case LEX.sy lex of
                                 RightParen => (* Empty parameter list *)
