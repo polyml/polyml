@@ -1176,8 +1176,21 @@ struct
             else (atyp, false)
         end
 
-    |   copyType (FlexibleRecordVar _, _) =
-            (BadType, true) (* This case does not occur. Flexible records have already been frozen or errored. *)
+    |   copyType (FlexibleRecordVar{recList=ref recl, fullList as ref full, equality=ref eq, level=ref lvl}, copyTypeConstr) =
+        let (* We may have a flexible record in a structure that is frozen by the signature. *)
+            val recList = followRefChainToEnd recl
+            val {names, frozen} = followRefChainToEnd full
+            and equality = followRefChainToEnd eq
+            and level = followRefChainToEnd lvl
+            val mapped = List.map (fn {name, typeOf} => {name=name, typeOf= #1(copyType (typeOf, copyTypeConstr))}) recList
+            (* Add any new fields.  Each field has to be a new type variable modelled on the generic but distinct. *)
+            val copiedList = expandFlexRecord(mapped, names, level, equality)
+        in
+            if frozen
+            then (LabelledRecord copiedList, true)
+            else (FlexibleRecordVar{recList=ref(ChainEnd copiedList), fullList=fullList,
+                    equality = ref(ChainEnd equality), level = ref(ChainEnd level)}, true)
+        end
 
     |   copyType (atyp as LabelledRecord recList, copyTypeConstr) =
         let
