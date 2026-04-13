@@ -176,13 +176,19 @@ struct
 
     |  tupleWidth(ExpSeq(p, _)) = tupleWidth(#1 (List.last p))
 
-    |  tupleWidth(Ident{ expType=ref(expType, _), ...}) = getCodetreeType expType
+    |  tupleWidth(Ident{ expType=ref(expType, _), ...}) = filterTuple(getCodetreeType expType)
 
-    |  tupleWidth(Literal{ expType=ref expType, ...}) = getCodetreeType expType
+    |  tupleWidth(Literal{ expType=ref expType, ...}) = filterTuple(getCodetreeType expType)
 
-    |  tupleWidth(Applic{ expType=ref expType, ...}) = getCodetreeType expType
+    |  tupleWidth(Applic{ expType=ref expType, ...}) = filterTuple(getCodetreeType expType)
 
     |  tupleWidth _ = [GeneralType]
+
+    (* We must only consider this as returning a tuple if it actually constructs the tuple.
+       If it has a tuple type that doesn't count.  In contrast floating point values are
+       considered by their type. *)
+    and filterTuple (single as [_]) = single
+    |   filterTuple _ = [GeneralType]
 
     (* Start of the code-generator itself. *)
   
