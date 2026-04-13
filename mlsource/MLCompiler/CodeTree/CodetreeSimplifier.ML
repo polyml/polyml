@@ -39,16 +39,18 @@ functor CodetreeSimplifier(
 
     structure Debug: DEBUG
 
+    structure Pretty: PRETTY
+
     sharing
         BaseCodeTree.Sharing
     =   CodetreeFunctions.Sharing
     =   RemoveRedundant.Sharing
 ) :
     sig
-        type codetree and codeBinding and envSpecial
+        type codetree and codeBinding and envSpecial and pretty
 
         val simplifier:
-            { code: codetree, numLocals: int, maxInlineSize: int } ->
+            { code: codetree, numLocals: int, maxInlineSize: int, codeTreePrinter: pretty -> unit } ->
                 (codetree * codeBinding list * envSpecial) * int * bool
         val specialToGeneral:
             codetree * codeBinding list * envSpecial -> codetree
@@ -58,6 +60,7 @@ functor CodetreeSimplifier(
             type codetree = codetree
             and codeBinding = codeBinding
             and envSpecial = envSpecial
+            and pretty = pretty
         end
     end
 =
@@ -66,6 +69,7 @@ struct
     open Address
     open CodetreeFunctions
     open BuiltIns
+    open Pretty
 
     exception InternalError = Misc.InternalError
 
@@ -83,7 +87,8 @@ struct
         nextAddress: unit -> int,
         reprocess: bool ref,
         maxInlineSize: int,
-        currentInline: unit ref list
+        currentInline: unit ref list,
+        codeTreePrinter: pretty -> unit
     }
 
     (* This exception is raised if we recursively expand an inline function.  This can only
@@ -385,7 +390,7 @@ struct
             SOME(mkEnv(List.rev decValue, StoreOperation{kind=kind, address=genAddress, value=genValue}))
         end
 
-    |   simpGeneral (context as {reprocess, ...}) (BlockOperation{kind, sourceLeft, destRight, length}) =
+    |   simpGeneral (context as {reprocess, codeTreePrinter, ...}) (BlockOperation{kind, sourceLeft, destRight, length}) =
         let
             val multiplier =
                 case kind of
@@ -411,6 +416,7 @@ struct
                     (SOME length, BlockOpMove{isByteMove}) =>
                     let
                         val _ = reprocess := true (* Frequently the source will be a constant. *)
+                        val () = codeTreePrinter(PrettyString "Simplify: block move")
                         val {base=baseSrc, index=indexSrc, offset=offsetSrc} = genSrcAddress
                         and {base=baseDst, index=indexDst, offset=offsetDst} = genDstAddress
                         (* This is uses non-synchronised load and store so we set isImmutable to true *)
@@ -455,7 +461,7 @@ struct
             SOME operation
         end
 
-    |   simpGeneral (context as {enterAddr, nextAddress, reprocess, ...}) (Handle{exp, handler, exPacketAddr}) =
+    |   simpGeneral (context as {enterAddr, nextAddress, reprocess, codeTreePrinter, ...}) (Handle{exp, handler, exPacketAddr}) =
         let (* We need to make a new binding for the exception packet. *)
             val expBody = simplify(exp, context)
             val newAddr = nextAddress()
@@ -467,11 +473,16 @@ struct
                Similarly, if we know that the expression does raise an exception and the exception
                packet is itself exception-free, we can evaluate the handler directly. *)
             if exceptionFree expBody
-            then (reprocess := true; SOME expBody)
+            then (reprocess := true; codeTreePrinter(PrettyString "Simplify: exception free; Handle discarded"); SOME expBody)
             else case expBody of
                 Raise expPacket =>
                     if exceptionFree expPacket
-                    then (reprocess := true; SOME(mkEnv([mkDec(newAddr, expPacket)], handleBody)))
+                    then
+                    (
+                        reprocess := true;
+                        codeTreePrinter(PrettyString "Simplify: always exception; Handle inserted");
+                        SOME(mkEnv([mkDec(newAddr, expPacket)], handleBody))
+                    )
                     else SOME(Handle{exp=expBody, handler=handleBody, exPacketAddr=newAddr})
 
             |   _ => SOME(Handle{exp=expBody, handler=handleBody, exPacketAddr=newAddr})
@@ -536,7 +547,8 @@ struct
         end
 
     (* Process a Newenv.  We need to add the bindings to the context. *)
-    and simpNewenv((envDecs: codeBinding list, envExp), context as { enterAddr, nextAddress, reprocess, ...}, tailDecs): codetree * revlist * envSpecial =
+    and simpNewenv((envDecs: codeBinding list, envExp),
+                    context as { enterAddr, nextAddress, reprocess, codeTreePrinter, ...}, tailDecs): codetree * revlist * envSpecial =
     let
         fun copyDecs ([], decs) =
             simpSpecial(envExp, context, decs) (* End of the list - process the result expression. *)
@@ -651,6 +663,7 @@ struct
                            On the native platforms that doesn't matter but on 32-in-64 indirecting
                            from the heap and from the stack are different. *)
                         val _ = reprocess := true
+                        val () = codeTreePrinter(PrettyString "Simplify: SetContainer converted to tuple")
                     in
                         copyDecs(vs, RevList(containerDec :: tupleDec :: setDecs @ decs))
                     end
@@ -689,7 +702,7 @@ struct
         end
 
     and simpLambda({body, isInline, name, argTypes, resultType, closure, localCount, functionId, ...},
-                  { lookupAddr, reprocess, maxInlineSize, currentInline, ... }, myOldAddrOpt, myNewAddrOpt) =
+                  { lookupAddr, reprocess, maxInlineSize, currentInline, codeTreePrinter, ... }, myOldAddrOpt, myNewAddrOpt) =
         let
             (* A new table for the new function. *)
             val oldAddrTab = Array.array (localCount, NONE)
@@ -756,7 +769,8 @@ struct
                         nextAddress=mkAddr,
                         reprocess = reprocess,
                         maxInlineSize = maxInlineSize,
-                        currentInline = currentInline
+                        currentInline = currentInline,
+                        codeTreePrinter = codeTreePrinter
                     })
             end
 
@@ -828,7 +842,7 @@ struct
             )
         end
 
-    and simpFunctionCall(function, argList, resultType, context as { reprocess, maxInlineSize, currentInline, ...}, tailDecs) =
+    and simpFunctionCall(function, argList, resultType, context as { reprocess, maxInlineSize, currentInline, codeTreePrinter, ...}, tailDecs) =
     let
         (* Function call - This may involve inlining the function. *)
 
@@ -838,7 +852,7 @@ struct
         
         val inlineExpansion =
         case specFunct of
-            EnvSpecInlineFunction({body=lambdaBody, localCount, argTypes, functionId, ...}, functEnv) =>
+            EnvSpecInlineFunction({body=lambdaBody, localCount, argTypes, functionId, name=functionName, ...}, functEnv) =>
             let
                 (* Prevent recursive expansion. *)
                 val _ = if List.exists(fn i => i = functionId) currentInline then raise RecursiveInlineExpansion functionId else ()
@@ -883,10 +897,11 @@ struct
                     {
                         lookupAddr=localOldAddr, enterAddr=setTabForInline,
                         nextAddress=nextAddress, reprocess = reprocess,
-                        maxInlineSize = maxInlineSize, currentInline = functionId :: currentInline
+                        maxInlineSize = maxInlineSize, currentInline = functionId :: currentInline,
+                        codeTreePrinter = codeTreePrinter
                     }
             in
-                SOME(simpSpecial(lambdaBody, lambdaContext, copiedArgs))
+                SOME(simpSpecial(lambdaBody, lambdaContext, copiedArgs), functionName)
                     handle exn as RecursiveInlineExpansion fId =>
                         (* We need to discard the attempt to expand inline and instead *)
                         if fId = functionId
@@ -897,7 +912,12 @@ struct
         |   _ => NONE
     in
         case inlineExpansion of
-            SOME expansion => (reprocess := true; expansion)
+            SOME(expansion, functionName) =>
+            (
+                reprocess := true;
+                codeTreePrinter(PrettyString("Simplify: Expand inline: " ^ functionName));
+                expansion
+            )
 
         |   NONE => (* Not inlineable or failed. *)
             let
@@ -918,7 +938,7 @@ struct
        If c is a constant then we may try to fold both the shortOp and the longOp and one
        of these will be type-incorrect although never executed at run-time. *)
 
-    and simpUnary(oper, arg1, context as { reprocess, ...}, tailDecs) =
+    and simpUnary(oper, arg1, context as { reprocess, codeTreePrinter, ...}, tailDecs) =
     let
         val (genArg1, decArg1, specArg1) = simpSpecial(arg1, context, tailDecs)
     in
@@ -926,6 +946,7 @@ struct
             (NotBoolean, Constnt(v, _)) =>
             (
                 reprocess := true;
+                codeTreePrinter(PrettyString "Simplify: NotBoolean - constant");
                 (if isShort v andalso toShort v = 0w0 then CodeTrue else CodeFalse, decArg1, EnvSpecNone)
             )
 
@@ -941,6 +962,7 @@ struct
                     (
                         (* not(not a) - Eliminate. *)
                         reprocess := true;
+                        codeTreePrinter(PrettyString "Simplify: NotBoolean - applied to NotBoolean");
                         (originalArg, decArg1, EnvSpecNone)
                     )
                  |  _ =>
@@ -951,6 +973,7 @@ struct
         |   (IsTaggedValue, Constnt(v, _)) =>
             (
                 reprocess := true;
+                codeTreePrinter(PrettyString "Simplify: IsTaggedValue - constant");
                 (if isShort v then CodeTrue else CodeFalse, decArg1, EnvSpecNone)
             )
 
@@ -959,26 +982,38 @@ struct
                 (* We use this to test for nil values and if we have constructed a record
                    (or possibly a function) it can't be null. *)
                 case specArg1 of
-                    EnvSpecTuple _ => (CodeFalse, decArg1, EnvSpecNone) before reprocess := true
+                    EnvSpecTuple _ =>
+                    (
+                        reprocess := true;
+                        codeTreePrinter(PrettyString "Simplify: IsTaggedValue - argument is a tuple");
+                        (CodeFalse, decArg1, EnvSpecNone) 
+                    )
                 |   EnvSpecInlineFunction _ =>
-                        (CodeFalse, decArg1, EnvSpecNone) before reprocess := true
+                    (
+                        reprocess := true;
+                        codeTreePrinter(PrettyString "Simplify: IsTaggedValue - argument is a function");
+                        (CodeFalse, decArg1, EnvSpecNone)
+                    )
                 |   _ => (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
             )
         |   (MemoryCellLength, Constnt(v, _)) =>
             (
                 reprocess := true;
+                codeTreePrinter(PrettyString "Simplify: MemoryCellLength - constant");
                 (if isShort v then CodeZero else Constnt(toMachineWord(Address.length(toAddress v)), []), decArg1, EnvSpecNone)
             )
 
         |   (MemoryCellFlags, Constnt(v, _)) =>
             (
                 reprocess := true;
+                codeTreePrinter(PrettyString "Simplify: MemoryCellFlags - constant");
                 (if isShort v then CodeZero else Constnt(toMachineWord(Address.flags(toAddress v)), []), decArg1, EnvSpecNone)
             )
 
         |   (LongWordToTagged, Constnt(v, _)) =>
             (
                 reprocess := true;
+                codeTreePrinter(PrettyString "Simplify: LongWordToTagged - constant");
                 (Constnt(toMachineWord(Word.fromLargeWord(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
             )
 
@@ -990,6 +1025,7 @@ struct
                     EnvSpecUnary(UnsignedToLongWord, originalArg) =>
                     (
                         reprocess := true;
+                        codeTreePrinter(PrettyString "Simplify: LongWordToTagged - argument is UnsignedToLongWord");
                         (originalArg, decArg1, EnvSpecNone)
                     )
                  |  _ => (Unary{oper=LongWordToTagged, arg1=genArg1}, decArg1, EnvSpecNone)
@@ -998,12 +1034,14 @@ struct
         |   (SignedToLongWord, Constnt(v, _)) =>
             (
                 reprocess := true;
+                codeTreePrinter(PrettyString "Simplify: SignedToLongWord - constant");
                 (Constnt(toMachineWord(Word.toLargeWordX(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
             )
 
         |   (UnsignedToLongWord, Constnt(v, _)) =>
             (
                 reprocess := true;
+                codeTreePrinter(PrettyString "Simplify: UnsignedToLongWord - constant");
                 (Constnt(toMachineWord(Word.toLargeWord(RunCall.unsafeCast v)), []), decArg1, EnvSpecNone)
             )
 
@@ -1014,6 +1052,7 @@ struct
         |   (Log2Word, Constnt(v, _)) =>
             let
                 val () = reprocess := true
+                val () = codeTreePrinter(PrettyString "Simplify: Log2Word - constant")
                 (* IntInf.log2 raises an exception if the argument is zero or negative.
                    Log2Word is currently only used for IntInf.log2 but just in case it is
                    ever used for anything else this covers it.  The implementations of
@@ -1032,7 +1071,7 @@ struct
         |   _ => (Unary{oper=oper, arg1=genArg1}, decArg1, EnvSpecNone)
     end
 
-    and simpBinary(oper, arg1, arg2, context as {reprocess, ...}, tailDecs) =
+    and simpBinary(oper, arg1, arg2, context as {reprocess, codeTreePrinter, ...}, tailDecs) =
     let
         val (genArg1, decArg1, specArg1) = simpSpecial(arg1, context, tailDecs)
         val (genArg2, decArgs, specArg2) = simpSpecial(arg2, context, decArg1)
@@ -1044,6 +1083,7 @@ struct
             else
             let
                 val () = reprocess := true
+                val () = codeTreePrinter(PrettyString "Simplify: WordComparison - constants")
                 val testResult =
                     case (test, isSigned) of
                         (* TestEqual can be applied to addresses. *)
@@ -1064,6 +1104,7 @@ struct
         |   (PointerEq, Constnt(v1, _), Constnt(v2, _)) =>
             (
                 reprocess := true;
+                codeTreePrinter(PrettyString "Simplify: PointerEq - constants");
                 (if RunCall.pointerEq(v1, v2) then CodeTrue else CodeFalse, decArgs, EnvSpecNone)
             )
 
@@ -1073,7 +1114,12 @@ struct
                    from the test for cons (::) which uses a test for short values.  Which test gets
                    generated depends on which comes first. *)
                 case (specArg2, isShort v1) of
-                    (EnvSpecTuple _, true) => (CodeFalse, decArgs, EnvSpecNone) before reprocess := true
+                    (EnvSpecTuple _, true) =>
+                    (
+                        reprocess := true;
+                        codeTreePrinter(PrettyString "Simplify: PointerEq - constant and tuple");
+                        (CodeFalse, decArgs, EnvSpecNone) 
+                    )
                 |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             )
 
@@ -1081,7 +1127,12 @@ struct
             (
                 (* This case probably never arises from pattern matching but include it anyway. *)
                 case (specArg1, isShort v2) of
-                    (EnvSpecTuple _, true) => (CodeFalse, decArgs, EnvSpecNone) before reprocess := true
+                    (EnvSpecTuple _, true) =>
+                    (
+                        reprocess := true;
+                        codeTreePrinter(PrettyString "Simplify: PointerEq - tuple and constant");
+                        (CodeFalse, decArgs, EnvSpecNone)
+                    )
                 |   _ => (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
             )
 
@@ -1090,12 +1141,22 @@ struct
                applied if appropriate. *)
         |   (GeneralEquality, Constnt(v1, _), genArg2) =>
                 if isShort v1
-                then (Binary{oper=PointerEq, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) before reprocess := true
+                then
+                (
+                    reprocess := true;
+                    codeTreePrinter(PrettyString "Simplify: GeneralEquality - short constant");
+                    (Binary{oper=PointerEq, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+                )
                 else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
 
         |   (GeneralEquality, genArg1, Constnt(v2, _)) =>
                 if isShort v2
-                then (Binary{oper=PointerEq, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone) before reprocess := true
+                then
+                (
+                    reprocess := true;
+                    codeTreePrinter(PrettyString "Simplify: GeneralEquality - short constant");
+                    (Binary{oper=PointerEq, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
+                )
                 else (Binary{oper=oper, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
 
         |   (FixedPrecisionArith arithOp, Constnt(v1, _), Constnt(v2, _)) =>
@@ -1104,6 +1165,7 @@ struct
             else
             let
                 val () = reprocess := true
+                val () = codeTreePrinter(PrettyString "Simplify: FixedPrecisionArith - constants")
                 val v1S = toFix v1
                 and v2S = toFix v2
                 fun asConstnt v = Constnt(toMachineWord v, [])
@@ -1145,6 +1207,7 @@ struct
             else
             let
                 val () = reprocess := true
+                val () = codeTreePrinter(PrettyString "Simplify: WordArith - constants")
                 val v1S = toShort v1
                 and v2S = toShort v2
                 fun asConstnt v = Constnt(toMachineWord v, [])
@@ -1182,6 +1245,7 @@ struct
             else
             let
                 val () = reprocess := true
+                val () = codeTreePrinter(PrettyString "Simplify: WordLogical - constants")
                 val v1S = toShort v1
                 and v2S = toShort v2
                 fun asConstnt v = Constnt(toMachineWord v, [])
@@ -1211,6 +1275,7 @@ struct
             else
             let
                 val () = reprocess := true
+                val () = codeTreePrinter(PrettyString "Simplify: WordShift - constants")
                 val v1S = toShort v1
                 and v2S = toShort v2
                 fun asConstnt v = Constnt(toMachineWord v, [])
@@ -1232,7 +1297,7 @@ struct
            uses a combination of PointerEq and byte comparison. *)
             raise InternalError "simpArbitraryCompare: TestEqual"
 
-    |   simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, ...}, tailDecs) =
+    |   simpArbitraryCompare(test, shortCond, arg1, arg2, longCall, context as {reprocess, codeTreePrinter, ...}, tailDecs) =
     let
         val (genCond, decCond, _ (*specArg1*)) = simpSpecial(shortCond, context, tailDecs)
         val (genArg1, decArg1, _ (*specArg1*)) = simpSpecial(arg1, context, decCond)
@@ -1267,8 +1332,11 @@ struct
                 then (* One argument is definitely long - generate the long form. *)
                     (simplify(longCall, context), decArgs, EnvSpecNone)
                 else (* Both arguments are short.  That should mean they're constants. *)
+                (
+                    reprocess := true;
+                    codeTreePrinter(PrettyString "Simplify: CompareArbitrary  - short constants");
                     (Binary{oper=WordComparison{test=test, isSigned=true}, arg1=genArg1, arg2=genArg2}, decArgs, EnvSpecNone)
-                         before reprocess := true
+                )
 
         |   (_, genArg1, cArg2 as Constnt _) =>
             let (* The constant must be short otherwise the test would be false. *)
@@ -1803,7 +1871,7 @@ struct
     |   simpPostSetContainer(container, tupleGen, RevList tupleDecs, filter) =
             mkEnv(List.rev tupleDecs, mkSetContainer(container, tupleGen, filter))
 
-    fun simplifier{code, numLocals, maxInlineSize} =
+    fun simplifier{code, numLocals, maxInlineSize, codeTreePrinter} =
     let
         val localAddressAllocator = ref 0
         val addrTab = Array.array(numLocals, NONE)
@@ -1821,7 +1889,7 @@ struct
         val (gen, RevList bindings, spec) =
             simpSpecial(code,
                 {lookupAddr = lookupAddr, enterAddr = enterAddr, nextAddress = mkAddr,
-                 reprocess = reprocess, maxInlineSize = maxInlineSize, currentInline = []}, RevList[])
+                 reprocess = reprocess, maxInlineSize = maxInlineSize, currentInline = [], codeTreePrinter = codeTreePrinter}, RevList[])
     in
         ((gen, List.rev bindings, spec), ! localAddressAllocator, !reprocess)
     end
@@ -1836,5 +1904,6 @@ struct
         type codetree = codetree
         and codeBinding = codeBinding
         and envSpecial = envSpecial
+        and pretty = pretty
     end
 end;

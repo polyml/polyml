@@ -63,6 +63,7 @@ local
             and       CodetreeFunctions = CodetreeFunctions
             and       RemoveRedundant   = CodetreeRemoveRedundant
             and       Debug              = Debug
+            and       Pretty           = Pretty
         )
 
     structure CodetreeOptimiser =
