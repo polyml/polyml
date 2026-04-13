@@ -1548,6 +1548,12 @@ struct
         (mapCodetree runChecks code, numLocals, !needReprocess)
     end
 
+    (* If the optimiser goes more than this many times round the loop
+       assume it is generating code that it is then regenerating.
+       It could just stop at that point but it really indicates an
+       error that should be fixed. *)
+    val maxLoopCount = 10
+
     (* Main optimiser and simplifier loop. *)
     fun codetreeOptimiser(code, debugSwitches, numLocals) =
     let
@@ -1555,7 +1561,7 @@ struct
 
         val maxInlineSize = Debug.getParameter Debug.maxInlineSizeTag debugSwitches
 
-        fun processTree (code, nLocals, optAgain) =
+        fun processTree (code, nLocals, optAgain, loopCount) =
         let
             (* First run the simplifier.  Among other things this does inline
                expansion and if it does any we at least need to run cleanProc
@@ -1603,13 +1609,15 @@ struct
                 val () = if printCodeTree then compilerOut(Pretty.PrettyString "Output of optimiser") else ()
                 val () = if printCodeTree then compilerOut (BaseCodeTree.pretty llCode) else ()
             in
+                if loopCount > maxLoopCount
+                then raise InternalError "Optimiser/simplifier loop detected"
                 (* Rerun the simplifier at least. *)
-                processTree(llCode, llCount, llAgain)
+                else processTree(llCode, llCount, llAgain, loopCount+1)
             end
             else (simpCode, simpCount) (* We're done *)
         end
 
-        val (postOptCode, postOptCount) = processTree(code, numLocals, true (* Once at least *))
+        val (postOptCode, postOptCount) = processTree(code, numLocals, true (* Once at least *), 0)
         val (rGeneral, rDecs, rSpec) = postOptCode
     in
         { numLocals = postOptCount, general = rGeneral, bindings = rDecs, special = rSpec }
