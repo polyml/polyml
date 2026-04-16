@@ -1361,7 +1361,7 @@ struct
                 then
                 (
                     reprocess := true;
-                    codeTreePrinter(PrettyString("Optimiser: reprocess function: " ^ name))
+                    codeTreePrinter(PrettyString("Optimiser: function: " ^ name  ^ " is now inline"))
                 )
                 else ();
                 (bindings, Lambda newLambda)
@@ -1464,7 +1464,7 @@ struct
        extra parameters.  The advantage compared with using a static-link or a closure on
        the stack is that they can be fully tail-recursive.  With a static-link or stack
        closure the free variables have to remain on the stack until the function returns. *)
-    fun lambdaLiftAndConstantFunction(code, debugSwitches, numLocals) =
+    fun lambdaLiftAndConstantFunction(code, debugSwitches, numLocals, codeTreePrinter) =
     let
         val needReprocess = ref false
         (* At the moment this just code-generates immediately any lambdas without
@@ -1569,15 +1569,10 @@ struct
 
         and mapChecks c = mapCodetree runChecks c
 
+        val () = if !needReprocess then codeTreePrinter(PrettyString "Lambdalift/constant") else ()
     in
         (mapCodetree runChecks code, numLocals, !needReprocess)
     end
-
-    (* If the optimiser goes more than this many times round the loop
-       assume it is generating code that it is then regenerating.
-       It could just stop at that point but it really indicates an
-       error that should be fixed. *)
-    val maxLoopCount = 10
 
     (* Main optimiser and simplifier loop. *)
     fun codetreeOptimiser(code, debugSwitches, numLocals) =
@@ -1633,16 +1628,14 @@ struct
                     if ! reprocess (* Re-optimise *) orelse simpAgain (* The simplifier wants to run again on this. *)
                     then (optCode, ! addressAllocator, ! reprocess)
                     else (* We didn't detect any inlineable functions.  Check for lambda-lifting. *)
-                        lambdaLiftAndConstantFunction(optCode, debugSwitches, ! addressAllocator)
+                        lambdaLiftAndConstantFunction(optCode, debugSwitches, ! addressAllocator, codeTreePrinter)
 
                 (* Print the code after the optimiser. *)
                 val () = codeTreePrinter(Pretty.PrettyString "Output of optimiser")
                 val () = codeTreePrinter(BaseCodeTree.pretty llCode)
             in
-                if loopCount > maxLoopCount
-                then raise InternalError "Optimiser/simplifier loop detected"
                 (* Rerun the simplifier at least. *)
-                else processTree(llCode, llCount, llAgain, loopCount+1)
+                processTree(llCode, llCount, llAgain, loopCount+1)
             end
             else (simpCode, simpCount) (* We're done *)
         end
