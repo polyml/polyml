@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2016, 2021, 2026 David C.J. Matthews
+    Copyright (c) 2016, 2021 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -28,8 +28,7 @@ sig
         argTypes      : (argumentType * codeUse list) list,
         resultType    : argumentType,
         localCount    : int,
-        recUse        : codeUse list,
-        functionId    : unit ref
+        recUse        : codeUse list
     }
     type machineWord = Address.machineWord
     val codeGenerate: lambdaForm * Universal.universal list * closureRef -> Universal.universal list

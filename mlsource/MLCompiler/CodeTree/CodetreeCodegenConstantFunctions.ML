@@ -202,7 +202,7 @@ struct
     |   cgFuns _ _ = NONE
     
     and cgLambda({lookupAddr, debugArgs, ...},
-                 { body, isInline, name, closure, argTypes, resultType, localCount, recUse, functionId},
+                 { body, isInline, name, closure, argTypes, resultType, localCount, recUse},
                  loadRecursive) =
     let
         val cArray = Array.array(localCount, NONE)
@@ -239,7 +239,7 @@ struct
         { 
             body = newBody, isInline = isInline, name = name, closure = resultClosure,
             argTypes = argTypes, resultType = resultType, localCount = localCount,
-            recUse = recUse, functionId = functionId
+            recUse = recUse
         }
     end
 
@@ -263,7 +263,7 @@ struct
         
         val resultCode = mapCodetree (cgFuns context) original
         (* Turn this into a lambda to code-generate. *)
-        val lambda =
+        val lambda:lambdaForm =
         {
             body = resultCode,
             isInline = DontInline,
@@ -272,8 +272,7 @@ struct
             argTypes = [(GeneralType, [])],
             resultType = GeneralType,
             localCount = nLocals,
-            recUse = [],
-            functionId = ref ()
+            recUse = []
         }
         val closure = makeConstantClosure()
 

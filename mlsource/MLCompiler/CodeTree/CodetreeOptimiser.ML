@@ -1,6 +1,6 @@
 (*
 
-    Copyright (c) 2012,13,15,17,19-22, 2026 David C.J. Matthews
+    Copyright (c) 2012,13,15,17,19-22 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -119,13 +119,13 @@ struct
     (* When transforming code we only process one level and do not descend into sub-functions. *)
     local
         fun deExtract(Extract l) = l | deExtract _ = raise Misc.InternalError "deExtract"
-        fun onlyFunction repEntry (Lambda{ body, isInline, name, closure, argTypes, resultType, localCount, recUse, functionId }) =
+        fun onlyFunction repEntry (Lambda{ body, isInline, name, closure, argTypes, resultType, localCount, recUse }) =
             SOME(
                 Lambda {
                     body = body, isInline = isInline, name = name,
                     closure = map (deExtract o mapCodetree repEntry o Extract) closure,
                     argTypes = argTypes, resultType = resultType, localCount = localCount,
-                    recUse = recUse, functionId=functionId
+                    recUse = recUse
                 }
             )
         |   onlyFunction repEntry code = repEntry code
@@ -225,8 +225,7 @@ struct
                     name = name ^ "()",
                     closure = List.tabulate(closureSize, fn n => LoadClosure n) @ stableArgs,
                     argTypes = List.map (fn (_, t, u) => (t, u)) changeArgsAndTypes,
-                    resultType = resultType, localCount = localCount, recUse = [UseGeneral],
-                    functionId=ref ()
+                    resultType = resultType, localCount = localCount, recUse = [UseGeneral]
                 }
         in
             Eval {
@@ -422,7 +421,7 @@ struct
        apply and it would be possible to merge them all.  For the moment keep them
        separate.  If another of the cases applies this will be re-entered on a
        subsequent pass. *)
-    fun detupleResult({ argTypes, name, resultType, closure, isInline, localCount, body, functionId, ...}: lambdaForm , filter, makeAddress) =
+    fun detupleResult({ argTypes, name, resultType, closure, isInline, localCount, body, ...}: lambdaForm , filter, makeAddress) =
         (* The function returns a tuple or at least the uses of the function take apart a tuple.
            Transform it to take a container as an argument and put the result in there. *)
         let
@@ -458,7 +457,7 @@ struct
                         argTypes=argTypes @ [(ContainerType containerSize, [])],
                         closure=closure @ [LoadLocal shimAddress],
                         localCount=localCount + 1, isInline=isInline,
-                        recUse = [UseGeneral], functionId=functionId
+                        recUse = [UseGeneral]
                     }
             in
                 val mainFunction = (mainAddress, mainLambda)
@@ -480,14 +479,13 @@ struct
                     )
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = InlineAlways, localCount = 1, recUse = [UseGeneral],
-                  functionId=ref () }
+                  resultType = resultType, isInline = InlineAlways, localCount = 1, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimLambda)
          in
             (shimLambda, [mainFunction, shimFunction])
         end
 
-    fun transformFunctionArgs({ argTypes, name, resultType, closure, isInline, localCount, body, functionId, ...} , usage, makeAddress) =
+    fun transformFunctionArgs({ argTypes, name, resultType, closure, isInline, localCount, body, ...} , usage, makeAddress) =
         (* Not curried - just a single argument. *)
         let
             (* We need to construct an inline "shim" function that
@@ -619,7 +617,7 @@ struct
                             Lambda { closure = fnclosure,
                                 isInline = InlineAlways, name = name ^ "-P", resultType = GeneralType,
                                 argTypes = List.tabulate(nArgs, fn _ => (GeneralType, [UseGeneral])),
-                                localCount = if needContainer then 1 else 0, recUse = [], functionId=ref (),
+                                localCount = if needContainer then 1 else 0, recUse = [],
                                 body = curryPack(tl,
                                             (* The closure for the next level is the current closure
                                                together with all the arguments at this level. *)
@@ -672,7 +670,7 @@ struct
                 in
                     val thisArg =
                         Lambda {
-                            closure = loadThisArg, isInline = InlineAlways, name = name ^ "-E", functionId=ref (),
+                            closure = loadThisArg, isInline = InlineAlways, name = name ^ "-E",
                             argTypes =
                                 List.tabulate(totalArgCount,
                                     fn i => if i = totalArgCount-1 then (lastArgType, [UseGeneral]) else (GeneralType, [UseGeneral])),
@@ -716,7 +714,7 @@ struct
                 {
                     body = mkEnv(extraBindings, transBody), name = name, argTypes = transArgTypes,
                     closure = closure @ [LoadLocal shimAddress], resultType = resultType, isInline = isInline,
-                    localCount = ! localCounter, recUse = [UseGeneral], functionId=functionId
+                    localCount = ! localCounter, recUse = [UseGeneral]
                 }
 
             (* Return the pair of functions. *)
@@ -725,8 +723,7 @@ struct
                 Eval { function = Extract(LoadClosure 0), argList = transArgs, resultType = resultType }
             val shimLambda =
                 { body = shimBody, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = InlineAlways, localCount = 0, recUse = [UseGeneral],
-                  functionId = ref() }
+                  resultType = resultType, isInline = InlineAlways, localCount = 0, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimLambda)
             (* TODO:  We have two copies of the shim function here. *)
         in
@@ -734,7 +731,7 @@ struct
         end
 
     fun decurryFunction(
-            { argTypes, name, resultType, closure, isInline, localCount, functionId,
+            { argTypes, name, resultType, closure, isInline, localCount,
               body as Lambda { argTypes=subArgTypes, resultType=subResultType, ... } , ...}, makeAddress) =
         (* Curried - just unwind one level this time.  This case is normally dealt with by
            the front-end at least for fun bindings. *)
@@ -769,7 +766,7 @@ struct
                         },
                     name = name, resultType = subResultType,
                     closure = closure @ [LoadLocal shimAddress], isInline = isInline, localCount = localCount,
-                    argTypes = argTypes @ subArgTypes, recUse = [UseGeneral], functionId=functionId
+                    argTypes = argTypes @ subArgTypes, recUse = [UseGeneral]
                 }
             val mainFunction = (mainAddress, mainLambda)
 
@@ -785,12 +782,12 @@ struct
                                           mapArgs LoadArgument subArgTypes
                             },
                     name = name ^ "-", resultType = subResultType, localCount = 0, isInline = InlineAlways,
-                    argTypes = subArgTypes, recUse = [UseGeneral], functionId = ref()
+                    argTypes = subArgTypes, recUse = [UseGeneral]
                 }
 
             val shimOuterLambda =
                 { body = shimInnerLambda, name = name, argTypes = argTypes, closure = [LoadLocal mainAddress],
-                  resultType = resultType, isInline = InlineAlways, localCount = 0, recUse = [UseGeneral], functionId = ref() }
+                  resultType = resultType, isInline = InlineAlways, localCount = 0, recUse = [UseGeneral] }
             val shimFunction = (shimAddress, shimOuterLambda)
         in
             (shimOuterLambda: lambdaForm, [mainFunction, shimFunction])
@@ -1115,7 +1112,7 @@ struct
     and optLambda(
             { maxInlineSize, reprocess, makeAddr, codeTreePrinter, ... },
             contextUse,
-            { body, name, argTypes, resultType, closure, localCount, isInline, recUse, functionId, ...},
+            { body, name, argTypes, resultType, closure, localCount, isInline, recUse, ...},
             lambdaContext) : (int * lambdaForm) list * codetree =
     (*
         Optimisations on lambdas.
@@ -1189,8 +1186,7 @@ struct
                         body = optBody,
                         isInline = isInline, name = name, closure = closure,
                         argTypes = argTypes, resultType = resultType, recUse = recUse,
-                        localCount = !addressAllocator, (* After optimising body. *)
-                        functionId = functionId
+                        localCount = !addressAllocator (* After optimising body. *)
                     }
             in
                 ([], Lambda lambdaRes) 
@@ -1246,7 +1242,7 @@ struct
                 {
                     body = updatedBody, name = name, argTypes = argTypes, closure = closure,
                     resultType = resultType, isInline = inlineType, localCount = localCount,
-                    recUse = recUse, functionId = functionId
+                    recUse = recUse
                 }
 
                 (* See if it should be transformed.  We only do this if the function is not going
@@ -1485,10 +1481,9 @@ struct
             val needed = ! needReprocess
             val _ = needReprocess := false;
             val transLambdas =
-                map (fn {lambda={body, isInline, name, closure, argTypes, resultType, localCount, recUse, functionId}, use, addr} =>
+                map (fn {lambda={body, isInline, name, closure, argTypes, resultType, localCount, recUse}, use, addr} =>
                         {lambda={body=mapChecks body, isInline=isInline, name=name, closure=closure,
-                                  argTypes=argTypes, resultType=resultType, localCount=localCount, recUse=recUse,
-                                  functionId=functionId},
+                                  argTypes=argTypes, resultType=resultType, localCount=localCount, recUse=recUse},
                          use=use, addr=addr}) lambdaList
             val theseTransformed = ! needReprocess
             val _ = if needed then needReprocess := true else ()
