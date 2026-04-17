@@ -101,8 +101,10 @@ struct
         |   forward((mv as Move{source=MemoryArg{base, offset, index=NoIndex}, destination=RegisterArg output, moveSize}) :: (reset as ResetStack{numWords=count, preserveCC}) :: tl,
                     list, rep) =
             (* If we have a load from the stack followed by a stack reset we may be able to use a pop.  Even if
-               we can't we may be better to split the stack reset in case there's another load that could. *)
-            if base = esp andalso offset < count * Word.toInt Address.nativeWordSize andalso (moveSize = Move32) = (targetArch = Native32Bit)
+               we can't we may be better to split the stack reset in case there's another load that could.
+               N.B. We could have a Move32X64 here in C32 mode in which case we can't do this. *)
+            if base = esp andalso offset < count * Word.toInt Address.nativeWordSize andalso
+                (case targetArch of Native32Bit => moveSize = Move32 | _ => moveSize = Move64)
             then (* Can use a pop instruction. *)
             let
                 val resetBefore = Int.min(offset div Word.toInt Address.nativeWordSize, count)
