@@ -535,8 +535,14 @@ struct
     |   codeGenerate(Labelled {base = NONE, recList = [{valOrPat, ...}], ...}, context) =
             codeGenerate (valOrPat, context) (* optimise unary records *)
 
-    |   codeGenerate(Labelled {base, recList, expType=ref expType, ...}, context as {level, mkAddr, debugEnv, ...}) =
+    |   codeGenerate(c as Labelled {base, recList, expType=ref expType, location, ...}, context as {lex, level, mkAddr, debugEnv, ...}) =
         let
+            (* Check that the type is frozen. *)
+            val () =
+                if recordNotFrozen expType
+                then errorNear (lex, true, c, location, "Can't find a fixed record type.")
+                else ();
+
             (* We must evaluate the expressions in the order they are
                written. This is not necessarily the order they appear
                in the record. *)
