@@ -2903,6 +2903,14 @@ struct
     fun recordFields (ty : types) =
         (case canonicalise (ty, fn _ => NONE) of
             (LabelledRecord fields, _) => fields
+        |   (FlexibleRecordVar {recList = ref recList, ...}, _) =>
+                (* In a valid program the record would be frozen at this point and so the
+                   LabelledRecord case is the only one that can occur. However, the check for
+                   whether the record is frozen is done during the same pass as the call to this
+                   function. Since the code from this pass is never actually executed it doesn't
+                   matter too much what this case returns but it needs to return something
+                   sensible.*)
+                []
         |   _ => raise Misc.InternalError "recordFields - not a record")
 
     local
