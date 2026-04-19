@@ -36,18 +36,6 @@ sig
     val projPrettyBreak: pretty -> int * int
     val projPrettyString: pretty -> string
 
-(*
-    datatype context =
-        ContextLocation of
-            { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-    |   ContextProperty of string * string (* User property. *)
-
-    datatype pretty =
-        PrettyBlock of int * bool * context list * pretty list
-    |   PrettyBreak of int * int
-    |   PrettyString of string
-*)
-
     (* A simple "pretty printer" that just accumulates strings. *)
     val uglyPrint: pretty -> string
 
