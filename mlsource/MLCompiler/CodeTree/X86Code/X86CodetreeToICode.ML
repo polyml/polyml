@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2016-23
+    Copyright David C. J. Matthews 2016-23, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -707,7 +707,7 @@ struct
                 (* Process a list of bindings.  We need to accumulate the space used by
                    any containers and reset the stack pointer at the end if necessary. *)
                 fun doBindings([], context, tailCode) = (tailCode, context)
- 
+
                 |   doBindings(BICDeclar{value=BICExtract(BICLoadLocal l), addr, ...} :: decs, context, tailCode) =
                     let
                         (* Giving a new name to an existing entry.  This should have been removed
@@ -717,6 +717,28 @@ struct
                         val () = Array.update(locToPregArray, addr, original)
                     in
                         doBindings(decs, context, tailCode)
+                    end
+
+                |   doBindings(BICDeclar{value as BICExtract(BICLoadArgument a), addr, ...} :: decs, context, tailCode) =
+                    let
+                        (* Ditto for arguments.  Have to handle the case of a register container specially. *)
+                        val code =
+                            case Vector.sub(argumentVector, a) of
+                                ArgIsRegContainer rc  =>
+                                let
+                                    val () = Array.update(locToPregArray, addr, RegisterContainer rc)
+                                in
+                                    tailCode
+                                end
+                            |   _ =>
+                                let
+                                    val (code, dest) = codeToPRegRev(value, context, tailCode)
+                                    val () = Array.update(locToPregArray, addr, PregLocation dest)
+                                in
+                                    code
+                                end
+                    in
+                        doBindings(decs, context, code)
                     end
 
                 |   doBindings(BICDeclar{value, addr, ...} :: decs, context, tailCode) =

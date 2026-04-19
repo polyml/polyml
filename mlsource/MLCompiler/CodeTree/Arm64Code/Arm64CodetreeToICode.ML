@@ -1,5 +1,5 @@
 (*
-    Copyright David C. J. Matthews 2021-3, 2025
+    Copyright David C. J. Matthews 2021-3, 2025-6
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -641,6 +641,28 @@ struct
                         val () = Array.update(locToPregArray, addr, original)
                     in
                         doBindings(decs, context, tailCode)
+                    end
+
+                |   doBindings(BICDeclar{value as BICExtract(BICLoadArgument a), addr, ...} :: decs, context, tailCode) =
+                    let
+                        (* Ditto for arguments.  Have to handle the case of a register container specially. *)
+                        val code =
+                            case Vector.sub(argumentVector, a) of
+                                ArgumentIsRegContainer rc  =>
+                                let
+                                    val () = Array.update(locToPregArray, addr, RegisterContainer rc)
+                                in
+                                    tailCode
+                                end
+                            |   _ =>
+                                let
+                                    val (code, dest, _) = codeToICodeRev(value, context, false, AnyReg, tailCode)
+                                    val () = Array.update(locToPregArray, addr, PregLocation dest)
+                                in
+                                    code
+                                end
+                    in
+                        doBindings(decs, context, code)
                     end
 
                 |   doBindings(BICDeclar{value, addr, ...} :: decs, context, tailCode) =
