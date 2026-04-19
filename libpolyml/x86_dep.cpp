@@ -644,7 +644,7 @@ void X86TaskData::HandleTrap()
         if (reasonCode == 0xff)
         {
             // Exception handler.
-            ASSERT(0); // Not used
+            // This case does not usually occur but may if there is an error in the code.
             assemblyInterface.exceptionPacket = assemblyInterface.p_rax; // Get the exception packet
             // We're already in the exception handler but we still have to
             // adjust the stack pointer and pop the current exception handler.
