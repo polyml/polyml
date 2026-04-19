@@ -2597,14 +2597,18 @@ struct
        is possible. *)
     fun typeConstrFromOverload overloadedFn =
     let
-        fun prefType(OverloadSetVar(ref typeset)) =
+        fun prefType(OverloadSetVar typeSetRef) =
             (
-                case followRefChainToEnd typeset of
-                    [tycons] => tycons
-                |   types =>
+                case followRefChainToRef typeSetRef of
+                    (_, [tycons]) => tycons
+                |   (fRef, types) =>
                 (
                     case preferredOverload types of
-                        SOME tycons => tycons
+                        (* If we have to select a type here we freeze it since we're going to generate
+                           code that only works for that type.  This is generally only needed for the
+                           top level but it's also necessary for local types if we run under the
+                           debugger. *)
+                        SOME tycons => (fRef := ChainEnd [tycons]; tycons)
                     |   NONE => raise Misc.InternalError "typeConstrFromOverload: No matching type"
                 )
             )
@@ -2885,7 +2889,8 @@ struct
                     refVal := ChainEnd(SOME(SimpleInstance newVal))
                 end
             else ()
-        |  checkTypes _ () = ()
+
+        |   checkTypes _ () = ()
     in
         foldType checkTypes (ty, fn _ => NONE) ();
         ()
