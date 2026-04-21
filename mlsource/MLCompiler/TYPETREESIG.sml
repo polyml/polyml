@@ -63,7 +63,7 @@ sig
     val sortLabels:         {name: string, typeOf: types } list -> {name: string, typeOf: types } list;
     val entryNumber:        string * types -> int;
     val recordNotFrozen:    types -> bool;
-    val recordFields:       types -> {name: string, typeOf: types } list;
+    val recordFields:       types -> string list;
     val recordWidth:        types -> int
 
     (* Creates a map from the arguments to a type function.  The type function can then be processed
