@@ -558,39 +558,29 @@ struct
                the results away in temporaries. When we reach the end we
                construct the tuple by asking for each entry in turn. *) 
 
-            val baseDec =
+            val baseDecs =
                 (case base of
                     NONE => []
                 |   SOME (baseExp, _) => [multipleUses (codegen (baseExp, context), fn () => mkAddr 1, level)]);
             val updateDecs = List.map (fn {name, valOrPat, ...} =>
                 (name, multipleUses (codegen (valOrPat, context), fn () => mkAddr 1, level))) recList
 
-
-            val (selDecs, tupleElems) = List.foldr (fn ({name as labelName, typeOf as labelType}, (selDecs, tupleElems)) =>
-                (case List.find (fn (name, _) => labelName = name) updateDecs of
+            val (selDecs, tupleElems) = List.foldr (fn (fieldName, (selDecs, tupleElems)) =>
+                (case List.find (fn (name, _) => fieldName = name) updateDecs of
                     NONE => (* The label is not in the update list; it must be in a nonempty base. *)
                     let
-                        val baseExp =
-                            (case base of
-                                NONE => raise Misc.InternalError "codeGenerate Labelled - base expected"
-                            |   SOME (baseExp, _) => baseExp);
+                        val baseDec = List.hd baseDecs
+                        val selectorCode : codetree =
+                            if recordWidth expType = 1
+                            then #load baseDec level (* optimise unary tuples - no indirection! *)
+                            else
+                            let
+                                val offset : int = entryNumber (fieldName, expType);
+                            in
+                                mkInd (offset, #load baseDec level)
+                            end
 
-                        val selector = Selector {
-                            name = labelName,
-                            labType = expType,
-                            typeof = mkFunctionType (expType, labelType),
-                            location = LEX.nullLocation
-                        }
-
-                        val selectorApplic = Applic {
-                          f = selector,
-                          arg = baseExp,
-                          location = LEX.nullLocation,
-                          isInfix = false,
-                          expType = ref (SimpleInstance labelType)
-                        }
-
-                        val dec = multipleUses (codegen (selectorApplic, context), fn () => mkAddr 1, level)
+                        val dec = multipleUses (selectorCode, fn () => mkAddr 1, level)
                     in
                         (dec :: selDecs, #load dec level :: tupleElems)
                     end
@@ -602,7 +592,7 @@ struct
                     (* Build the list from the back to the front to minimize traversals and temporary lists. *)
                     val decs = List.foldr (fn ((_, dec), xs) => #dec dec @ xs) [] updateDecs
                     val decs = List.foldr (fn (dec, xs) => #dec dec @ xs) decs selDecs
-                    val decs = List.foldr (fn (dec, xs) => #dec dec @ xs) decs baseDec
+                    val decs = List.foldr (fn (dec, xs) => #dec dec @ xs) decs baseDecs
                 in
                     decs
                 end

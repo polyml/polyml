@@ -113,3 +113,14 @@ end = struct
     fun getA{a,...} = a
     fun setA x y = {x where a = y}
 end;
+
+(* The base record gets evaluated only once *)
+let
+    val x = ref 1
+    fun mkRec () = {a= !x, b= !x, c= !x, d= !x} before x := !x+1
+    val r = {(mkRec()) where a = 0, b = 0};
+    val correct : bool =
+        r = {a = 0, b = 0, c = 1, d = 1} andalso !x = 2
+in
+    if correct then () else raise Fail "Record update: base evaluation"
+end;
