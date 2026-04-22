@@ -157,7 +157,8 @@ struct
        lookupFix: string -> fixStatus option }
 
  type params =
-     { recordPunning: bool }
+     { recordPunning: bool,
+       recordUpdate: bool }
 
  local
 
@@ -173,7 +174,7 @@ struct
 
  in
 
- fun parseDec (fsys, lex, {enterFix, lookupFix}, {recordPunning}) : program =
+ fun parseDec (fsys, lex, {enterFix, lookupFix}, {recordPunning, recordUpdate}) : program =
  let
    (* These procedures to parse type declarations are used in both
       signature and expression parsing. *)
@@ -850,7 +851,7 @@ struct
                                 val locs = LEX.locSpan (startLocn, LEX.location lex)
                                 val () = SKIPS.getsym (SYMBOLS.RightCurly, lex);
                             in
-                                (mkLabelledTree (result, frozen, locs), locs)
+                                (PARSETREE.mkLabelledTree (NONE, result, frozen, locs), locs)
                             end
                     end
 
@@ -1021,47 +1022,111 @@ struct
                         val () = LEX.insymbol lex;
                         val posEnd = LEX.location lex
                     in
-                        case LEX.sy lex of
+                        (case LEX.sy lex of
                             RightCurly => (* Empty brackets denote unit *)
                             let val () = LEX.insymbol lex val locs = LEX.locSpan (startLocn, posEnd) in (unit locs, locs) end
 
-                        |   _ =>
-                            let (* lab1 = exp1, __ , labn = expn *)
+
+                        |   firstSymbol =>
+                            (* This could be either
+                               a record update (i.e., { r with lab1 = exp1, __ , labn = expn }) or
+                               a record expression (i.e., { lab1 = exp1, __  , labn = expn }). *)
+                            let
+
+                                val startsWithLabel =
+                                    (case firstSymbol of IntegerConst => true | Ident => true | _ => false)
+
+                                val (base : (parsetree * location) option, firstLabel) =
+                                    if startsWithLabel then (* May or may not be record extension *)
+                                        let
+                                            val label as (_, idLoc) = SKIPS.getLabel (fsys ++ equalsSign ++ whereSy, lex)
+                                        in
+                                            if LEX.sy lex = SYMBOLS.WhereSy then
+                                                (* Record extension *)
+                                                let
+                                                    val base = (mkIdent label, idLoc)
+                                                    val () = SKIPS.getsym (SYMBOLS.WhereSy, lex)
+                                                    val label = SKIPS.getLabel (fsys ++ equalsSign, lex)
+                                                in
+                                                    (SOME base, label)
+                                                end
+                                            else
+                                                (NONE, label)
+                                        end
+                                    else (* Record extension *)
+                                        let
+                                            val base = atomicExpression (fsys ++ whereSy)
+                                            val () = SKIPS.getsym (SYMBOLS.WhereSy, lex)
+                                            val label = SKIPS.getLabel (fsys ++ equalsSign, lex)
+                                        in
+                                            (SOME base, label)
+                                        end
+
                                 (* The same label name should not be used more than once. *)
                                 val dupCheck = UTILITIES.noDuplicates (reportDup lex)
+                                val () = #enter dupCheck firstLabel (* Check for dups. *)
 
-                                fun getEntry () =
+                                fun parseLabel () =
                                 let
-                                    val (ident, idLoc) = SKIPS.getLabel (fsys ++ equalsSign, lex);
-                                    val () = #enter dupCheck (ident, idLoc) (* Check for dups. *)
+                                    val label = SKIPS.getLabel (fsys ++ equalsSign, lex)
+                                    val () = #enter dupCheck label (* Check for dups. *)
+                                in
+                                    label
+                                end
+
+                                fun parseLabelExp (label as (ident, idLoc)) =
+                                let
                                     val (labExp, labLoc) =
-                                        case LEX.sy lex of
-                                            EqualsSign => (* Simple case -- lab = expression *)
-                                            (
-                                                SKIPS.getsym (SYMBOLS.EqualsSign, lex);
-                                                expression (fsys ++ commaRightCurlySy) env
-                                            )
-                                        |   _ =>
-                                            (
-                                                if recordPunning then (* sugared form - label is also variable symbol *)
-                                                    ()
-                                                else
-                                                    LEX.errorMessage (lex, LEX.location lex, " = expr expected after label. If you want to use record punning, please specify it in the parser's parameters.");
-                                                (* Sugared form not allowed for numeric labels. *)
-                                                assertIdentNotNumericLabel lex ident " = expr expected after numeric label";
-                                                (mkIdent (ident, idLoc), idLoc)
-                                            )
+                                        (case LEX.sy lex of
+                                            SYMBOLS.EqualsSign => (* Simple case -- label = expression *)
+                                            (LEX.insymbol lex; expression (fsys ++ commaRightCurlySy) env)
+                                        |   _ => (* sugared form - the expression is a variable with the same name as the label *)
+                                            let
+                                                val () = (* Check that the language extension is enabled. *)
+                                                    if recordPunning then
+                                                        ()
+                                                    else
+                                                        LEX.errorMessage (lex, LEX.location lex,
+                                                            " = expr expected after label. To use record punning, please specify it in the parser's parameters.");
+
+                                                val () = (* Sugared form not allowed for numeric labels. *)
+                                                    assertIdentNotNumericLabel lex ident " = expr expected after numeric label";
+                                            in
+                                                (mkIdent label, idLoc)
+                                            end)
                                     val locs = LEX.locSpan (idLoc, labLoc)
                                 in
-                                    (mkLabelRecEntry(ident, idLoc, labExp, locs), locs)
+                                    (mkLabelRecEntry (ident, idLoc, labExp, locs), locs)
                                 end
-                                val (labs, _, _) = SKIPS.getList (SYMBOLS.Comma, empty, lex) (fn () => let val (v, l) = getEntry() in (v, l, ()) end) ()
+
+                                (* Check that the language extension is enabled for record update. *)
+                                val () =
+                                    if Option.isSome base andalso not recordUpdate then
+                                        LEX.errorMessage (lex, LEX.location lex,
+                                            "To use record update, please specify it in the parser's parameters")
+                                    else
+                                        ()
+
+                                val (firstEntry, firstEntryLoc) = parseLabelExp firstLabel
+                                val otherEntries =
+                                    case LEX.sy lex of
+                                        SYMBOLS.RightCurly => []
+                                    |   _ =>
+                                    (
+                                        SKIPS.getsym (SYMBOLS.Comma, lex);
+                                        #1 (SKIPS.getList (SYMBOLS.Comma, empty, lex)
+                                            (fn () => let val (v, l) = parseLabelExp (parseLabel ()) in (v, l, ()) end) ())
+                                    )
+
+                                val labs = firstEntry :: otherEntries
+
+
                                 val locs = LEX.locSpan (startLocn, LEX.location lex) (* Include brackets. *)
-                                val labelled = mkLabelledTree (labs, true (* always frozen *), locs)
+                                val labelled = PARSETREE.mkLabelledTree (base, labs, true (* always frozen *), locs)
                                 val () = SKIPS.getsym (SYMBOLS.RightCurly, lex);
                             in
                                 (labelled, locs)
-                            end
+                            end)
                     end
 
                 (* local declaration *)

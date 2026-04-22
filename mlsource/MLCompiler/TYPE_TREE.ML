@@ -2919,6 +2919,7 @@ struct
     end
 
     local
+        (* TODO: Figure out whether this function could be expressed as a projection of `recordFields`. *)
         (* We have to use the full list; not all fields may be in recList. *)
         fun getFieldList(LabelledRecord rcrd) = map #name rcrd
         |   getFieldList(FlexibleRecordVar{fullList=ref full, ...}) = #names(followRefChainToEnd full)
@@ -2943,7 +2944,8 @@ struct
 
         (* Size of a labelled record. *)
         and recordWidth rcrd = List.length(getFieldList rcrd)
-        
+
+        val recordFields = getFieldList
     end
 
     (* Get the codetree "types".  This is used during code-generation to see if

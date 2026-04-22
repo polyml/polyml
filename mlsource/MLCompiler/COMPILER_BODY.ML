@@ -154,11 +154,12 @@ struct
                 let
                     (* create a "throw away" compiling environment for this topdec *)
                     val newFixEnv = UTILITIES.searchList ()
+                    and languageExtensions = DEBUG.getParameter DEBUG.languageExtensionsTag debugSwitches
                     val fixes : PARSEDEC.fixes =
                         {enterFix = #enter newFixEnv,
                          lookupFix = Misc.lookupDefault (#lookup newFixEnv) (#lookupFix globals)}
                     and params : PARSEDEC.params =
-                        {recordPunning = DEBUG.getParameter DEBUG.languageExtensionsTag debugSwitches}
+                        {recordPunning = languageExtensions, recordUpdate = languageExtensions}
 
                     val stopSyms = let open SYMSET in op ++ (abortParse, semicolon) end
                 in
