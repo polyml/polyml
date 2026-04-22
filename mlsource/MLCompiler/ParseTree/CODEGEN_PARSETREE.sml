@@ -564,11 +564,8 @@ struct
                     NONE => (* The label is not in the update list; it must be in a nonempty base. *)
                     let
                         val baseDec = List.hd baseDecs
-                        val selectorCode : codetree =
-                            if recordWidth expType = 1
-                            then #load baseDec level (* optimise unary tuples - no indirection! *)
-                            else mkInd (offset, #load baseDec level)
-
+                        (* No need to optimize unary tuples because record update requires at least one updated field. *)
+                        val selectorCode : codetree = mkInd (offset, #load baseDec level)
                         val dec = multipleUses (selectorCode, fn () => mkAddr 1, level)
                     in
                         (dec :: selDecs, #load dec level :: tupleElems)
