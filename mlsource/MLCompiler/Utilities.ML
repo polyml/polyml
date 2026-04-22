@@ -29,6 +29,8 @@ sig
                             enter:  string * 'a -> unit,
                             lookup: string -> 'a option};
     val splitString: string -> { first:string,second:string }
+
+    val foldri : (int * 'a * 'b -> 'b) -> 'b -> 'a list -> 'b
 end =
 struct
   (* A search list in which an identifier may only be entered once.
@@ -87,5 +89,12 @@ struct
             second = Substring.string second }
     end
 
+    fun foldri f =
+    let
+        fun foldri_aux _ b [] = b
+          | foldri_aux n b (x::xs) = f (n, x, foldri_aux (n + 1) b xs)
+    in
+        foldri_aux 0
+    end
 end;
    

@@ -565,7 +565,7 @@ struct
             val updateDecs = List.map (fn {name, valOrPat, ...} =>
                 (name, multipleUses (codegen (valOrPat, context), fn () => mkAddr 1, level))) recList
 
-            val (selDecs, tupleElems) = List.foldr (fn (fieldName, (selDecs, tupleElems)) =>
+            val (selDecs, tupleElems) = Utilities.foldri (fn (offset, fieldName, (selDecs, tupleElems)) =>
                 (case List.find (fn (name, _) => fieldName = name) updateDecs of
                     NONE => (* The label is not in the update list; it must be in a nonempty base. *)
                     let
@@ -573,12 +573,7 @@ struct
                         val selectorCode : codetree =
                             if recordWidth expType = 1
                             then #load baseDec level (* optimise unary tuples - no indirection! *)
-                            else
-                            let
-                                val offset : int = entryNumber (fieldName, expType);
-                            in
-                                mkInd (offset, #load baseDec level)
-                            end
+                            else mkInd (offset, #load baseDec level)
 
                         val dec = multipleUses (selectorCode, fn () => mkAddr 1, level)
                     in
