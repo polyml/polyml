@@ -1,5 +1,5 @@
 (*
-    Copyright (c) 2013, 2015, 2017, 2020-1 David C.J. Matthews
+    Copyright (c) 2013, 2015, 2017, 2020-1, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -101,7 +101,9 @@ struct
                            may be inner functions that only make recursive calls to this.  By turning
                            the recursive references into constants we may be able to compile
                            them immediately as well. *)
-                        val repLambda = cgLambda(context, lambda, EnvGenConst(toMachineWord closure, []))
+                        (* N.B. We need to use "copied" here rather than the original lambda otherwise we'll
+                           reprocess the body. *)
+                        val repLambda = cgLambda(context, copied, EnvGenConst(toMachineWord closure, []))
                         val props = codeGenerateToConstant(repLambda, debugArgs, closure)
                     in
                         SOME(Constnt(toMachineWord closure, props))
