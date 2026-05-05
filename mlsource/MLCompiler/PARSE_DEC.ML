@@ -1107,7 +1107,7 @@ struct
                                     else
                                         ()
 
-                                val (firstEntry, firstEntryLoc) = parseLabelExp firstLabel
+                                val (firstEntry, _) = parseLabelExp firstLabel
                                 val otherEntries =
                                     case LEX.sy lex of
                                         SYMBOLS.RightCurly => []

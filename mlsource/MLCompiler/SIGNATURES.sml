@@ -1356,7 +1356,7 @@ struct
                             )
                         |   copyId _ = NONE
                                     
-                        val (copiedEquiv, haveCopied) =
+                        val (copiedEquiv, _) =
                             copyType(equiv, fn tcon => copyTypeConstr (tcon, copyId, fn s => s))
                         (* For the moment always use a Free ID here. *)
                         val copiedId = makeTypeFunction(arity, copiedEquiv, description)

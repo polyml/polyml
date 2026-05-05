@@ -867,7 +867,7 @@ struct
                 SimpleInstance tupleType
             end
           
-        |   assValues _ (v as Labelled {base, recList, frozen, expType, location, ...}) =
+        |   assValues _ (v as Labelled {base, recList, expType, location, ...}) =
             let
                 (* Process each item in the list. *)              
                 fun labEntryToLabType {name, valOrPat, expType, ...} =
@@ -883,7 +883,7 @@ struct
                 val () =
                     (case base of
                       NONE => ()
-                    | SOME (base, baseLoc) =>
+                    | SOME (base, _) =>
                         let val baseType = assValues v base in
                             (case unifyTypes (baseType, SimpleInstance expressionType) of
                              NONE => ()
