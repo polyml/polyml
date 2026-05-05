@@ -589,7 +589,11 @@ struct
                     decs
                 end
 
-            val tuple = mkTuple tupleElems
+            (* Special case for unary tuples. *)
+            val tuple =
+                case tupleElems of
+                    [singleton] => singleton
+                |   _ => mkTuple tupleElems
         in
             (* Create the record and package it up as a block. *)
             (mkEnv (allDecs, tuple), debugEnv)
