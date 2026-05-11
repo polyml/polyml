@@ -540,7 +540,8 @@ void ModuleExporter::Perform()
     }
 }
 
-static Handle moduleIdAsByteVector(TaskData* taskData, struct _moduleId modId)
+// Return a module Id as a string.  Exported to savestat.cpp
+Handle moduleIdAsByteVector(TaskData* taskData, struct _moduleId modId)
 {
     union {
         struct _moduleId mId;

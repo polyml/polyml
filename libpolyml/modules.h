@@ -5,4 +5,10 @@
 
 extern struct _entrypts modulesEPT[];
 
+class TaskData;
+class SaveVecEntry;
+typedef SaveVecEntry* Handle;
+
+Handle moduleIdAsByteVector(TaskData* taskData, struct _moduleId modId);
+
 #endif

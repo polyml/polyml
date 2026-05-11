@@ -1,7 +1,7 @@
 (*
     Title:      Nearly final version of the PolyML structure
     Author:     David Matthews
-    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-21, 2025
+    Copyright   David Matthews 2008-9, 2014, 2015-17, 2019-21, 2025-6
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -2208,7 +2208,11 @@ in
 
             fun saveState f = saveChild (f, 0);
 
-            val showHierarchy: unit -> string list = RunCall.rtsCallFull0 "PolyShowHierarchy"
+            (* Get the hierarchy with the IDs so they can be passed as dependent modules. *)
+            val showHierarchyWithIds: unit -> (moduleId * string) list = RunCall.rtsCallFull0 "PolyGetHierarchy"
+
+            (* Original function returns just the file names *)
+            val showHierarchy: unit -> string list = fn () => List.map #2 (showHierarchyWithIds())
             
             local
                 val doRename: string * string -> unit = RunCall.rtsCallFull2 "PolyRenameParent"

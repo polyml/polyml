@@ -2190,7 +2190,11 @@ in
 
             fun saveState f = saveChild (f, 0);
 
-            val showHierarchy: unit -> string list = RunCall.rtsCallFull0 "PolyShowHierarchy"
+            (* Get the hierarchy with the IDs so they can be passed as dependent modules. *)
+            val showHierarchyWithIds: unit -> (moduleId * string) list = RunCall.rtsCallFull0 "PolyGetHierarchy"
+
+            (* Original function returns just the file names *)
+            val showHierarchy: unit -> string list = fn () => List.map #2 (showHierarchyWithIds())
             
             local
                 val doRename: string * string -> unit = RunCall.rtsCallFull2 "PolyRenameParent"

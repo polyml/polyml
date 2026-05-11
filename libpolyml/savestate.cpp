@@ -1,7 +1,7 @@
 /*
     Title:  savestate.cpp - Save and Load state
 
-    Copyright (c) 2007, 2015, 2017-19, 2021, 2025 David C.J. Matthews
+    Copyright (c) 2007, 2015, 2017-19, 2021, 2025-6 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -112,6 +112,7 @@ typedef char TCHAR;
 #include "rtsentry.h"
 #include "check_objects.h"
 #include "rtsentry.h"
+#include "modules.h" // For moduleIdAsByteVector
 
 #ifdef _MSC_VER
 // Don't tell me about ISO C++ changes.
@@ -121,7 +122,7 @@ typedef char TCHAR;
 extern "C" {
     POLYEXTERNALSYMBOL POLYUNSIGNED PolySaveState(POLYUNSIGNED threadId, POLYUNSIGNED fileName, POLYUNSIGNED depth);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadState(POLYUNSIGNED threadId, POLYUNSIGNED arg);
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowHierarchy(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyGetHierarchy(POLYUNSIGNED threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyRenameParent(POLYUNSIGNED threadId, POLYUNSIGNED childName, POLYUNSIGNED parentName);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyShowParent(POLYUNSIGNED threadId, POLYUNSIGNED arg);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyLoadHierarchy(POLYUNSIGNED threadId, POLYUNSIGNED arg);
@@ -1202,8 +1203,8 @@ POLYUNSIGNED PolyLoadHierarchy(POLYUNSIGNED threadId, POLYUNSIGNED arg)
 // These functions do not affect the global state so can be executed by
 // the ML threads directly.
 
-static Handle ShowHierarchy(TaskData *taskData)
-// Return the list of files in the hierarchy.
+static Handle GetHierarchy(TaskData *taskData)
+// Return the list of files and module IDs in the hierarchy.
 {
     Handle saved = taskData->saveVec.mark();
     Handle list  = SAVE(ListNull);
@@ -1211,7 +1212,11 @@ static Handle ShowHierarchy(TaskData *taskData)
     // Process this in reverse order.
     for (std::vector<HierarchyTable>::reverse_iterator i = hierarchyTable.rbegin(); i != hierarchyTable.rend(); i++)
     {
-        Handle value = SAVE(C_string_to_Poly(taskData, i->fileName.c_str()));
+        Handle fName = SAVE(C_string_to_Poly(taskData, i->fileName.c_str()));
+        Handle modId = moduleIdAsByteVector(taskData, i->timeStamp);
+        Handle value = alloc_and_save(taskData, 2);
+        value->WordP()->Set(0, modId->Word());
+        value->WordP()->Set(1, fName->Word());
         Handle next  = alloc_and_save(taskData, sizeof(ML_Cons_Cell)/sizeof(PolyWord));
         DEREFLISTHANDLE(next)->h = value->Word();
         DEREFLISTHANDLE(next)->t = list->Word();
@@ -1221,8 +1226,8 @@ static Handle ShowHierarchy(TaskData *taskData)
     return list;
 }
 
-// Show the hierarchy.
-POLYUNSIGNED PolyShowHierarchy(POLYUNSIGNED threadId)
+// Return the file names and module IDs.
+POLYUNSIGNED PolyGetHierarchy(POLYUNSIGNED threadId)
 {
     TaskData *taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -1231,7 +1236,7 @@ POLYUNSIGNED PolyShowHierarchy(POLYUNSIGNED threadId)
     Handle result = 0;
 
     try {
-        result = ShowHierarchy(taskData);
+        result = GetHierarchy(taskData);
     }
     catch (const std::bad_alloc&) { setMemoryException(taskData); }
     catch (...) {} // If an ML exception is raised
@@ -1409,7 +1414,7 @@ struct _entrypts savestateEPT[] =
 {
     { "PolySaveState",                  (polyRTSFunction)&PolySaveState },
     { "PolyLoadState",                  (polyRTSFunction)&PolyLoadState },
-    { "PolyShowHierarchy",              (polyRTSFunction)&PolyShowHierarchy },
+    { "PolyGetHierarchy",               (polyRTSFunction)&PolyGetHierarchy },
     { "PolyRenameParent",               (polyRTSFunction)&PolyRenameParent },
     { "PolyShowParent",                 (polyRTSFunction)&PolyShowParent },
     { "PolyLoadHierarchy",              (polyRTSFunction)&PolyLoadHierarchy },
