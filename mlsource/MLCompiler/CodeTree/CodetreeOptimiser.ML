@@ -1,6 +1,6 @@
 (*
 
-    Copyright (c) 2012,13,15,17,19-22 David C.J. Matthews
+    Copyright (c) 2012,13,15,17,19-22, 2026 David C.J. Matthews
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -1571,7 +1571,7 @@ struct
 
         val () = if !needReprocess then codeTreePrinter(PrettyString "Lambdalift/constant") else ()
     in
-        (mapCodetree runChecks code, numLocals, !needReprocess)
+        (mapCodetree runChecks code, numLocals)
     end
 
     (* Main optimiser and simplifier loop. *)
@@ -1634,11 +1634,11 @@ struct
                         (postOptCode, true, !reprocess)
                     end
                 
-                val (llCode, llCount, _) =
+                val (llCode, llCount) =
                     (* If we have optimised it or the simplifier has run something that it wants to
                        run again we must rerun these before we try to generate any code. *)
                     if reprocess (* The simplifier wants to run again on this or we've optimised *)
-                    then (optCode, ! addressAllocator, true)
+                    then (optCode, ! addressAllocator)
                     else (* We didn't detect any inlineable functions.  Check for lambda-lifting. *)
                         lambdaLiftAndConstantFunction(optCode, debugSwitches, ! addressAllocator, codeTreePrinter)
 
