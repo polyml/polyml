@@ -648,7 +648,7 @@ void SaveRequest::Perform()
 #ifdef POLYML32IN64
                 PolyObject *forwardedTo = obj;
                 while (forwardedTo->ContainsForwardingPtr())
-                    forwardedTo = (PolyObject*)(globalCodeBase + ((forwardedTo->LengthWord() & ~_OBJ_TOMBSTONE_BIT) << 1));
+                    forwardedTo = (PolyObject*)(globalCodeBase + (((uintptr_t)(forwardedTo->LengthWord()) & ~_OBJ_TOMBSTONE_BIT) * POLYML32IN64));
 #else
                 PolyObject *forwardedTo = obj->FollowForwardingChain();
 #endif
