@@ -457,21 +457,25 @@ struct
                                 (
                                     case findAFriend(Array.sub(destinationRegs, r), Array.sub(sourceRegs, r), []) of
                                         SOME r => r
-                                        (* Look through the registers to find one that's free.  First try excluding
-                                           the cache registers. *)
-                                    |   NONE =>
+
+                                    |   NONE => (* No suitable friend *)
                                         let
-                                            (* First try filtering all the cache registers to see if we can find a
-                                               register.  If not see if it works by freeing one. *)
-                                            fun filterCache(filteredRegset, []) = List.find isFree filteredRegset
+                                            (* It's better to choose a register that isn't being used as a cache so first
+                                               filter those out.  If that fails drop a cache register and try that. *)
+                                            fun filterCache(filteredRegset, []) =
+                                                    (* See if we can find a register after excluding the cache. *)
+                                                    List.find isFree filteredRegset
 
                                             |   filterCache(filteredRegset, cacheItem :: cache) =
                                                 let
                                                     val cReg = regCachedIn cacheItem
                                                 in
                                                     case filterCache(List.filter(fn r => r <> cReg) filteredRegset, cache) of
-                                                        NONE => if isFree cReg then SOME cReg else NONE
-                                                    |   result => result
+                                                        result as SOME _ => result (* Found something? *)
+                                                    |   NONE =>
+                                                            if isFree cReg andalso List.exists(fn c => c = cReg) filteredRegset
+                                                            then SOME cReg
+                                                            else NONE
                                                 end
 
                                            val pick =
