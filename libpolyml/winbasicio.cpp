@@ -556,7 +556,7 @@ size_t WinInOutStream::writeStream(TaskData *taskData, byte *base, size_t length
 }
 
 /* Open a file in the required mode. */
-static Handle openWinFile(TaskData *taskData, Handle filename, openMode mode, bool isAppend, bool isBinary)
+static Handle openWinFile(TaskData *taskData, Handle filename, openMode mode, bool isBinary)
 {
     TempString cFileName(filename->Word()); // Get file name
     if (cFileName == 0) raise_syscall(taskData, "Insufficient memory", NOMEMORY);
@@ -1057,19 +1057,19 @@ static Handle IO_dispatch_c(TaskData *taskData, Handle args, Handle strm, Handle
         return stdStrm;
     }
     case 3: /* Open file for text input. */
-        return openWinFile(taskData, args, OPENREAD, false, false);
+        return openWinFile(taskData, args, OPENREAD, false);
     case 4: /* Open file for binary input. */
-        return openWinFile(taskData, args, OPENREAD, false, true);
+        return openWinFile(taskData, args, OPENREAD, true);
     case 5: /* Open file for text output. */
-        return openWinFile(taskData, args, OPENWRITE, false, false);
+        return openWinFile(taskData, args, OPENWRITE, false);
     case 6: /* Open file for binary output. */
-        return openWinFile(taskData, args, OPENWRITE, false, true);
+        return openWinFile(taskData, args, OPENWRITE, true);
     case 13: /* Open text file for appending. */
              /* The IO library definition leaves it open whether this
              should use "append mode" or not.  */
-        return openWinFile(taskData, args, OPENWRITE, true, false);
+        return openWinFile(taskData, args, OPENAPPEND, false);
     case 14: /* Open binary file for appending. */
-        return openWinFile(taskData, args, OPENWRITE, true, true);
+        return openWinFile(taskData, args, OPENAPPEND, true);
     case 7: /* Close file */
     {
         // During the bootstrap we will have old format references.
