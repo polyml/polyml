@@ -1,8 +1,8 @@
 (* Issue #278: saveModule assertion failure after loadState with multi-hierarchy heap.
    Creating a 2-layer saved state and then calling saveModule on it
    previously crashed with assertion failure in RunExport. *)
-val dir = OS.FileSys.getDir ();
-val tmp = OS.Path.joinDirFile {dir = dir, file = "tmp_issue278"};
+val tmp = OS.FileSys.tmpName();
+OS.FileSys.remove tmp;
 val _ = OS.FileSys.mkDir tmp handle _ => ();
 val layer0 = OS.Path.joinDirFile {dir = tmp, file = "layer0"};
 val layer1 = OS.Path.joinDirFile {dir = tmp, file = "layer1"};
