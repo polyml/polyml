@@ -34,9 +34,6 @@ class SaveVecEntry;
 typedef SaveVecEntry *Handle;
 class TaskData;
 
-extern Handle exportNative(TaskData *mdTaskData, Handle args);
-extern Handle exportPortable(TaskData *mdTaskData, Handle args);
-
 class ExportMemTable
 {
 public:

@@ -898,46 +898,6 @@ void StateExport::ScanConstant(PolyObject* base, byte* addr, ScanRelocationKind 
     createActualRelocation(a, addr, code);
 }
 
-
-// Functions called via the RTS call.
-Handle exportNative(TaskData *taskData, Handle args)
-{
-#ifdef HAVE_PECOFF
-    // Windows including Cygwin
-#if (defined(_WIN32))
-    const TCHAR *extension = _T(".obj"); // Windows
-#else
-    const char *extension = ".o"; // Cygwin
-#endif
-    PECOFFExport exports;
-    exporter(taskData, taskData->saveVec.push(args->WordP()->Get(0)),
-        taskData->saveVec.push(args->WordP()->Get(1)), extension, &exports);
-#elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
-    // Most Unix including Linux, FreeBSD and Solaris.
-    const char *extension = ".o";
-    ELFExport exports;
-    exporter(taskData, taskData->saveVec.push(args->WordP()->Get(0)),
-        taskData->saveVec.push(args->WordP()->Get(1)), extension, &exports);
-#elif defined(HAVE_MACH_O_RELOC_H)
-    // Mac OS-X
-    const char *extension = ".o";
-    MachoExport exports;
-    exporter(taskData, taskData->saveVec.push(args->WordP()->Get(0)),
-        taskData->saveVec.push(args->WordP()->Get(1)), extension, &exports);
-#else
-    raise_exception_string (taskData, EXC_Fail, "Native export not available for this platform");
-#endif
-    return taskData->saveVec.push(TAGGED(0));
-}
-
-Handle exportPortable(TaskData *taskData, Handle args)
-{
-    PExport exports;
-    exporter(taskData, taskData->saveVec.push(args->WordP()->Get(0)),
-        taskData->saveVec.push(args->WordP()->Get(1)), _T(".txt"), &exports);
-    return taskData->saveVec.push(TAGGED(0));
-}
-
 POLYUNSIGNED PolyExportedFileExtension(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
