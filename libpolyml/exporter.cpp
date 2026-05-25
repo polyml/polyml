@@ -95,7 +95,7 @@
 #endif
 
 extern "C" {
-    POLYEXTERNALSYMBOL POLYUNSIGNED PolyExportedObjectFileExt(POLYUNSIGNED threadId);
+    POLYEXTERNALSYMBOL POLYUNSIGNED PolyExportedFileExtension(POLYUNSIGNED threadId);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyExport(POLYUNSIGNED threadId, POLYUNSIGNED fileName, POLYUNSIGNED root);
     POLYEXTERNALSYMBOL POLYUNSIGNED PolyExportPortable(POLYUNSIGNED threadId, POLYUNSIGNED fileName, POLYUNSIGNED root);
 }
@@ -938,7 +938,7 @@ Handle exportPortable(TaskData *taskData, Handle args)
     return taskData->saveVec.push(TAGGED(0));
 }
 
-POLYUNSIGNED PolyExportedObjectFileExt(POLYUNSIGNED threadId)
+POLYUNSIGNED PolyExportedFileExtension(POLYUNSIGNED threadId)
 {
     TaskData* taskData = TaskData::FindTaskForId(threadId);
     ASSERT(taskData != 0);
@@ -946,25 +946,24 @@ POLYUNSIGNED PolyExportedObjectFileExt(POLYUNSIGNED threadId)
     Handle reset = taskData->saveVec.mark();
     Handle result = 0;
 
-    const char *extension;
+    try {
+        const char *extension;
 #ifdef HAVE_PECOFF
-    // Windows including Cygwin
+        // Windows including Cygwin
 #if (defined(_WIN32))
-    extension = "obj"; // Windows
+        extension = "obj"; // Windows
 #else
-    extension = "o"; // Cygwin
+        extension = "o"; // Cygwin
 #endif
 #elif defined(HAVE_ELF_H) || defined(HAVE_ELF_ABI_H)
-    // Most Unix including Linux, FreeBSD and Solaris.
-    extension = "o";
+        // Most Unix including Linux, FreeBSD and Solaris.
+        extension = "o";
 #elif defined(HAVE_MACH_O_RELOC_H)
-    // Mac OS-X
-    extension = "o";
+        // Mac OS-X
+        extension = "o";
 #else
-    raise_exception_string (taskData, EXC_Fail, "Native export not available for this platform");
+        raise_exception_string (taskData, EXC_Fail, "Native export not available for this platform");
 #endif
-
-    try {
         result = taskData->saveVec.push(C_string_to_Poly(taskData, extension));
     } catch (...) { } // If an ML exception is raised
 
@@ -1191,7 +1190,7 @@ unsigned long ExportStringTable::makeEntry(const char *str)
 
 struct _entrypts exporterEPT[] =
 {
-    { "PolyExportedObjectFileExt",      (polyRTSFunction)&PolyExportedObjectFileExt},
+    { "PolyExportedFileExtension",      (polyRTSFunction)&PolyExportedFileExtension},
     { "PolyExport",                     (polyRTSFunction)&PolyExport},
     { "PolyExportPortable",             (polyRTSFunction)&PolyExportPortable},
 

@@ -68,7 +68,7 @@ in
             and exportPortable(filename, f) = callExportP(filename, runFunction f)
         end
         
-        val exportedObjectFileExt: unit -> string = RunCall.rtsCallFull0 "PolyExportedObjectFileExt"
+        val exportedFileExtension: unit -> string = RunCall.rtsCallFull0 "PolyExportedFileExtension"
 
         local
             (* shareCommonData needs to be able to take a value of any type. *)
