@@ -123,9 +123,6 @@
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #undef HAVE_LIBPTHREAD
 
-/* Define to 1 if you have the 'stdc++' library (-lstdc++). */
-#undef HAVE_LIBSTDC__
-
 /* Define to 1 if you have the 'ws2_32' library (-lws2_32). */
 #undef HAVE_LIBWS2_32
 
