@@ -12,17 +12,17 @@ OS.FileSys.remove name handle OS.SysErr _ => ();
 Socket.bind(x, UnixSock.toAddr name);
 Socket.listen(x, 5);
 
-Socket.connect(y, UnixSock.toAddr name);
-
-val (cnct, _) = Socket.accept x;
-
-(* Send the data. Use a separate thread so there's no possibility of blocking. *)
+(* Send the data. Use a separate thread so there's no possibility of blocking.
+   The call to "connect" is also in here because otherwise there is a hang in Cygwin. *)
 let
     fun sendData() =
-        (Socket.sendVec(y, Word8VectorSlice.full(Byte.stringToBytes "A test")); ())
+        (Socket.connect(y, UnixSock.toAddr name); Socket.sendVec(y, Word8VectorSlice.full(Byte.stringToBytes "A test")); ())
 in
     Thread.Thread.fork(sendData, [])
 end;
+
+val (cnct, _) = Socket.accept x;
+
 
 if Byte.bytesToString(Socket.recvVec(cnct, 6)) <> "A test"
 then raise Fail "failed"
