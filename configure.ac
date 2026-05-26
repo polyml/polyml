@@ -91,9 +91,6 @@ AM_PROG_AS
 # Activate large file mode if needed
 AC_SYS_LARGEFILE
 
-# Checks for libraries.
-AC_CHECK_LIB(stdc++, main)
-
 # These can sometimes be in the standard libraries
 AC_SEARCH_LIBS([dlopen], [dl dld])
 AC_SEARCH_LIBS([floor], [m])
