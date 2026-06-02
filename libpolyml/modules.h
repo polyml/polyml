@@ -5,10 +5,14 @@
 
 extern struct _entrypts modulesEPT[];
 
+// Functions exported to savestate.cpp
 class TaskData;
 class SaveVecEntry;
 typedef SaveVecEntry* Handle;
 
 Handle moduleIdAsByteVector(TaskData* taskData, struct _moduleId modId);
+
+// When a new saved state is loaded all modules are freed.
+bool freeAllModules();
 
 #endif

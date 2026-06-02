@@ -540,7 +540,7 @@ void ModuleExporter::Perform()
     }
 }
 
-// Return a module Id as a string.  Exported to savestat.cpp
+// Return a module Id as a string.  Exported to savestate.cpp
 Handle moduleIdAsByteVector(TaskData* taskData, struct _moduleId modId)
 {
     union {
@@ -893,6 +893,18 @@ POLYUNSIGNED PolyLoadModule(POLYUNSIGNED threadId, POLYUNSIGNED arg)
     else return result->Word().AsUnsigned();
 }
 
+// When a new saved state is loaded all modules are freed.
+// This is particularly necessary if there is a module depends on a saved state that
+// has been removed.
+bool freeAllModules()
+{
+    for (std::vector<LoadedModuleData>::iterator i = loadedModules.begin(); i != loadedModules.end(); i++)
+        gMem.DemoteOldPermanentSpaces(i->modId);
+
+    loadedModules.clear();
+
+    return true;
+}
 
 // Return the system directory for modules.  This is configured differently
 // in Unix and in Windows.

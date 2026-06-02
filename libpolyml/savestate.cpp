@@ -987,6 +987,8 @@ bool StateLoader::LoadFile(bool isInitial, ModuleId requiredStamp, PolyWord tail
             gMem.DemoteOldPermanentSpaces(i->timeStamp);
 
         hierarchyTable.clear();
+
+        freeAllModules();
     }
 
     // Now have a valid, matching saved state.
