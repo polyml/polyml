@@ -277,8 +277,10 @@ static std::vector<LoadedModuleData> loadedModules;
 
 class ModIdAndName {
 public:
+    ModIdAndName(std_tstring mName, ModuleId mId, bool isM): modName(mName), modId(mId), isModule(isM) {}
     std_tstring modName;
     ModuleId modId;
+    bool isModule; // True if a module, false if a saved state.
 };
 
 
@@ -1593,26 +1595,40 @@ void ModuleExporter::RunModuleExport(PolyObject* rootFn)
     // deeper.
     for (std::vector<ModIdAndName>::size_type i = 0; i < dependencies.size(); i++)
     {
-        ModuleId m = dependencies[i].modId;
-        for (std::vector<LoadedModuleData>::const_iterator j = loadedModules.cbegin(); j != loadedModules.cend(); j++)
+        if (dependencies[i].isModule)
         {
-            // Find the entry in the loaded module table.  It should be there somewhere.
-            if (j->modId == m)
+            ModuleId m = dependencies[i].modId;
+            for (std::vector<LoadedModuleData>::const_iterator j = loadedModules.cbegin(); j != loadedModules.cend(); j++)
             {
-                // Add all the dependencies if they're not already there.
-                for (std::vector<ModuleId>::const_iterator k = j->modDependencies.cbegin(); k < j->modDependencies.cend(); k++)
+                // Find the entry in the loaded module table.  It should be there somewhere.
+                if (j->modId == m)
                 {
-                    if (!copyScan.dependencies[k->modId])
+                    // Add all the dependencies if they're not already there.
+                    for (std::vector<ModuleId>::const_iterator k = j->modDependencies.cbegin(); k < j->modDependencies.cend(); k++)
                     {
-                        ModIdAndName m;
-                        m.modId = k->modId;
-                        // Add this to the end.  It will be processed later but the sub-dependencies should already be there.
-                        dependencies.push_back(m);
-                        copyScan.dependencies[k->modId] = true; // Don't need to add it again.
+                        if (!copyScan.dependencies[k->modId])
+                        {
+                            ModIdAndName m(_T(""), k->modId, true);
+                            // Add this to the end.  It will be processed later but the sub-dependencies should already be there.
+                            dependencies.push_back(m);
+                            copyScan.dependencies[k->modId] = true; // Don't need to add it again.
+                        }
                     }
-                }
 
-                break; // Don't need to search further
+                    break; // Don't need to search further
+                }
+            }
+        }
+        else
+        {
+            ModuleId m = dependencies[i].modId;
+            // Add all the saved states at this and higher levels since any data in these levels should be
+            // referenced rather than copied.  The entry should be there because we've already checked.
+            for (std::vector <HierarchyTable>::iterator i = hierarchyTable.begin(); i < hierarchyTable.end(); i++)
+            {
+                copyScan.dependencies[i->timeStamp] = true;
+                if (m == i->timeStamp)
+                    break;
             }
         }
     }
@@ -1918,20 +1934,34 @@ POLYUNSIGNED PolyStoreModule(POLYUNSIGNED threadId, POLYUNSIGNED filename, POLYU
         {
             PolyObject* p = ((ML_Cons_Cell*)l.AsObjPtr())->h.AsObjPtr();
             ModuleId mId = moduleIdFromByteVector(taskData, p->Get(0));
-            // Check that this module is currently loaded.  This isn't strictly necessary
-            // but it's almost certainly a mistake.
+            // See if this is a module or a saved state.
             std::vector<LoadedModuleData>::iterator i = loadedModules.begin();
-            while (true)
+            while (i != loadedModules.end())
             {
-                if (i == loadedModules.end())
-                    raise_fail(taskData, "A dependency is listed but the module is not loaded");
-                if (i->modId == mId) break;
+                if (i->modId == mId)
+                {
+                    ModIdAndName mn(PolyStringToTString(p->Get(1)), mId, true);
+                    storer.dependencies.push_back(mn);
+                    break;
+                }
                 i++;
             }
-            class ModIdAndName mn;
-            mn.modId = mId;
-            mn.modName = PolyStringToTString(p->Get(1));
-            storer.dependencies.push_back(mn);
+            if (i == loadedModules.end())
+            {
+                std::vector<HierarchyTable>::iterator j = hierarchyTable.begin();
+                while (j != hierarchyTable.end())
+                {
+                    if (ModuleId(j->timeStamp) == mId)
+                    {
+                        // Set the name to the empty string.  We cannot auto-load a saved state.
+                        ModIdAndName mn(_T(""), mId, false);
+                        storer.dependencies.push_back(mn);
+                        break;
+                    }
+                }
+                if (j == hierarchyTable.end())
+                    raise_fail(taskData, "A dependency is listed but the module is not loaded");
+            }
         }
 
         processes->MakeRootRequest(taskData, &storer);
