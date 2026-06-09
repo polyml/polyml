@@ -871,6 +871,14 @@ void StateLoader::Perform(void)
     }
 }
 
+class ClearVolatile : public ScanAddress
+{
+public:
+    ClearVolatile() {}
+    virtual PolyObject* ScanObjectAddress(PolyObject* base) { return base; }
+    virtual void ScanAddressesInObject(PolyObject* base, POLYUNSIGNED lengthWord);
+};
+
 // Set the values of external references and clear the values of other weak byte refs.
 void ClearVolatile::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthWord)
 {
@@ -897,7 +905,7 @@ void ClearVolatile::ScanAddressesInObject(PolyObject *base, POLYUNSIGNED lengthW
 }
 
 // Work around bug in Mac OS when reading into MAP_JIT memory.
-size_t readData(void *ptr, size_t size, FILE *stream)
+static size_t readData(void *ptr, size_t size, FILE *stream)
 {
 #ifndef MACOSX
     return fread(ptr, size, 1, stream);
