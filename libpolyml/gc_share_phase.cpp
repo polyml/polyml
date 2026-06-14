@@ -914,7 +914,7 @@ void GetSharing::SortData()
         totalRecovered += shared * (k+1); // Add 1 for the length word.
         if (debugOptions & DEBUG_GC)
             Log("GC: Share: Byte objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared (%1.1f%%)\n",
-                k, totalCount, shared, (double)shared / (double)totalCount * 100.0);
+                k, totalCount, shared, totalCount == 0 ? 0.0 : ((double)shared / (double)totalCount * 100.0));
     }
 
     for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
@@ -926,7 +926,7 @@ void GetSharing::SortData()
         totalRecovered += shared * (l+1);
         if (debugOptions & DEBUG_GC)
             Log("GC: Share: Word objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared (%1.1f%%)\n",
-                l, totalCount, shared, (double)shared / (double)totalCount * 100.0);
+                l, totalCount, shared, totalCount == 0 ? 0.0 : ((double)shared / (double)totalCount * 100.0));
     }
 
     if (debugOptions & DEBUG_GC)
