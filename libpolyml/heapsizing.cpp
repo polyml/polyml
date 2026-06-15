@@ -129,9 +129,6 @@ HeapSizeParameters::HeapSizeParameters()
 #define ROUNDUP(m,n)   (ROUNDUP_UNITS(m,n) * (n))
 #define K_to_words(k) ROUNDUP((k) * (1024 / sizeof(PolyWord)),BITSPERWORD)
 
-// Returns physical memory size in bytes
-static size_t GetPhysicalMemorySize(void);
-
 // These are the maximum values for the number of words.
 #if (SIZEOF_VOIDP == 4)
 #   define MAXIMUMADDRESS   0x3fffffff /* 4Gbytes as words */
@@ -148,8 +145,6 @@ void HeapSizeParameters::SetHeapParameters(uintptr_t minsize, uintptr_t maxsize,
     minHeapSize = K_to_words(minsize); // If these overflow assume the result will be zero
     maxHeapSize = K_to_words(maxsize);
     uintptr_t initialSize = K_to_words(initialsize);
-
-//   uintptr_t memsize = GetPhysicalMemorySize() / sizeof(PolyWord);
 
     // If no maximum is given default it to 80% of the physical memory.
     // This allows some space for the OS and other things.
@@ -941,76 +936,3 @@ void HeapSizing::Stop()
 {
     gHeapSizeParameters.Final();
 }
-
-static size_t GetPhysicalMemorySize(void)
-{
-    size_t maxMem = (size_t)0-1; // Maximum unsigned value.
-#if defined(HAVE_WINDOWS_H) // Windows including Cygwin
-    {
-        MEMORYSTATUSEX memStatEx;
-        memset(&memStatEx, 0, sizeof(memStatEx));
-        memStatEx.dwLength = sizeof(memStatEx);
-        if (! GlobalMemoryStatusEx(&memStatEx))
-            memStatEx.ullTotalPhys = 0; // Clobber any rubbish since it says it failed.
-        if (memStatEx.ullTotalPhys) // If it's non-zero assume it succeeded
-        {
-            DWORDLONG dwlMax = maxMem;
-            if (memStatEx.ullTotalPhys > dwlMax)
-                return maxMem;
-            else
-                return (size_t)memStatEx.ullTotalPhys;
-        }
-    }
-
-#endif
-#if defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
-    {
-        // Linux and Solaris.  This gives a silly value in Cygwin.
-        long physPages      = sysconf(_SC_PHYS_PAGES);
-        long physPagesize   = sysconf(_SC_PAGESIZE);
-        if (physPages != -1 && physPagesize != -1)
-        {
-            unsigned long maxPages = maxMem / physPagesize;
-            if ((unsigned long)physPages > maxPages)
-                return maxMem;
-            else // We've checked it won't overflow.
-                return physPages*physPagesize;
-        }
-    }
-#endif
-#if defined(HAVE_SYSCTL) && defined(CTL_HW)
-    // FreeBSD and Mac OS X.  It seems HW_MEMSIZE has been added to
-    // Max OS X to return a 64-bit value.
-#ifdef HW_MEMSIZE
-    {
-        static int mib[2] = { CTL_HW, HW_MEMSIZE };
-        uint64_t physMem = 0;
-        size_t len = sizeof(physMem);
-        if (sysctl(mib, 2, &physMem, &len, NULL, 0) == 0 && len == sizeof(physMem))
-        {
-            if (physMem > (uint64_t)maxMem)
-                return maxMem;
-            else
-                return (size_t)physMem;
-        }
-    }
-#endif
-#ifdef HW_PHYSMEM
-    // If HW_MEMSIZE isn't there or the call failed try this.
-    {
-        static int mib[2] = { CTL_HW, HW_PHYSMEM };
-        unsigned int physMem = 0;
-        size_t len = sizeof(physMem);
-        if (sysctl(mib, 2, &physMem, &len, NULL, 0) == 0 && len == sizeof(physMem))
-        {
-            if (physMem > maxMem)
-                return maxMem;
-            else
-                return physMem;
-        }
-    }
-#endif
-#endif
-    return 0; // Unable to determine
-}
-
