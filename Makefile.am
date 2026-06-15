@@ -56,10 +56,10 @@ POLYOBJECTFILE = polyexport.o
 OBJECTSUFFIX=o
 endif
 
-poly_SOURCES = 
+poly_SOURCES = dummy.cpp
 poly_LDADD = $(POLYOBJECTFILE) $(POLYRESOURCES) libpolymain/libpolymain.la libpolyml/libpolyml.la 
 
-polyimport_SOURCES = polyimport.c
+polyimport_SOURCES = dummy.cpp polyimport.c
 polyimport_LDADD = $(POLYRESOURCES) libpolyml/libpolyml.la
 
 EXTRA_DIST = \
