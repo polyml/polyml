@@ -907,24 +907,26 @@ void GetSharing::SortData()
     POLYUNSIGNED totalSize = 0, totalShared = 0, totalRecovered = 0;
     for (unsigned k = 0; k < NUM_BYTE_VECTORS; k++)
     {
-        totalSize += byteVectors[k].TotalCount();
+        POLYUNSIGNED totalCount = byteVectors[k].TotalCount();
         POLYUNSIGNED shared = byteVectors[k].Shared();
+        totalSize += totalCount;
         totalShared += shared;
         totalRecovered += shared * (k+1); // Add 1 for the length word.
         if (debugOptions & DEBUG_GC)
-            Log("GC: Share: Byte objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
-                k, byteVectors[k].TotalCount(), byteVectors[k].Shared());
+            Log("GC: Share: Byte objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared (%1.1f%%)\n",
+                k, totalCount, shared, totalCount == 0 ? 0.0 : ((double)shared / (double)totalCount * 100.0));
     }
 
     for (unsigned l = 0; l < NUM_WORD_VECTORS; l++)
     {
-        totalSize += wordVectors[l].TotalCount();
+        POLYUNSIGNED totalCount = wordVectors[l].TotalCount();
         POLYUNSIGNED shared = wordVectors[l].Shared();
+        totalSize += totalCount;
         totalShared += shared;
         totalRecovered += shared * (l+1);
         if (debugOptions & DEBUG_GC)
-            Log("GC: Share: Word objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared\n",
-                l, wordVectors[l].TotalCount(), wordVectors[l].Shared());
+            Log("GC: Share: Word objects of size %u: %" POLYUFMT " objects %" POLYUFMT " shared (%1.1f%%)\n",
+                l, totalCount, shared, totalCount == 0 ? 0.0 : ((double)shared / (double)totalCount * 100.0));
     }
 
     if (debugOptions & DEBUG_GC)
