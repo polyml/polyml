@@ -1,6 +1,6 @@
 (*
     Title:      Standard Basis Library: Word and LargeWord Structure
-    Copyright   David Matthews 1999, 2005, 2012, 2016, 2021
+    Copyright   David Matthews 1999, 2005, 2012, 2016, 2021, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -97,14 +97,14 @@ local
                       | SOME(ch, src'') =>
                         if ch = #"w"
                         then if radix = StringCvt.HEX
-                        then (* Is it 0wx, 0wX ? *)
+                        then (* Hex format MUST have an x or X after the 0w. *)
                             (
                             case getc src'' of
                                 NONE => NONE
                               | SOME(ch, src''') =>
                                 if ch = #"x" orelse ch = #"X"
                                 then read_number src''' (* Skip the 0wx *)
-                                else read_number src'' (* Skip the 0w *)
+                                else read_number src (* Include the 0 in the input *)
                             )
                         else read_number src'' (* Skip the 0w *)
                         else if (ch = #"x" orelse ch = #"X") andalso radix = StringCvt.HEX
