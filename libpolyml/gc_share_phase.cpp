@@ -835,6 +835,8 @@ void GetSharing::SortData()
     gpTaskFarm->AddWorkOrRunNow(shareByteData, this, 0);
     gpTaskFarm->WaitForCompletion();
 
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Share/shareByteData");
+
     // Word data may contain pointers to other objects.  If an object
     // has been processed its header will contain either a normal length
     // word or a forwarding pointer if it shares.  We can process an
@@ -888,9 +890,13 @@ void GetSharing::SortData()
         lastShared = postShared;
     }
 
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Share/shareWordData");
+
     // Process any remaining entries.  There may be loops.
     gpTaskFarm->AddWorkOrRunNow(shareRemainingWordData, this, 0);
     gpTaskFarm->WaitForCompletion();
+
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Share/shareRemainingWordData");
 
     if (debugOptions & DEBUG_GC)
     {
@@ -984,10 +990,9 @@ void GCSharingPhase(void)
         Log("GC: Share: After scanning other roots: Total %" POLYUFMT " (%" POLYUFMT " words) byte %" POLYUFMT " word %" POLYUFMT ".\n",
             sharer.totalVisited, sharer.totalSize, sharer.byteAdded, sharer.wordAdded);
 
-    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Table");
+    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Share/Table");
 
     // Sort and merge the data.
     sharer.SortData();
 
-    gHeapSizeParameters.RecordGCTime(HeapSizeParameters::GCTimeIntermediate, "Sort");
 }
