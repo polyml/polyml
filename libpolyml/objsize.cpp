@@ -112,6 +112,13 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
     // could allocate new local areas resulting in gMem.nlSpaces
     // and gMem.lSpaces changing under our feet.
     PLocker lock(&gMem.allocLock);
+    // gMem.cSpaces is protected by codeSpaceLock, not by allocLock, and
+    // MemMgr::AllocCodeSpace appends to it from any thread that is compiling ML.
+    // The count taken below and the loop that fills in the entries have to be
+    // inside the same lock or they can disagree and overrun the bitmaps array.
+    // Lock order is allocLock then codeSpaceLock; AllocCodeSpace acquires only
+    // codeSpaceLock, so there is no path that takes them the other way round.
+    PLocker codeLock(&gMem.codeSpaceLock);
 
     total_length = 0;
     show_size    = show;
@@ -137,6 +144,11 @@ ProcessVisitAddresses::ProcessVisitAddresses(bool show)
         bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
     }
     ASSERT(bm == nBitmaps);
+    // N.B.  This is only a snapshot.  A thread compiling ML can add a code space
+    // while the scan that follows is running; a code object in such a space has
+    // no bitmap, so ShowObject prints "Bad address" and skips it.  That does not
+    // crash and cannot corrupt the heap - the object is simply left out, so the
+    // size reported can be an under-estimate.
 
     // Clear the profile counts.
     for (unsigned i = 0; i < MAX_PROF_LEN+1; i++)
