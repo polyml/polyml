@@ -64,23 +64,6 @@ private:
     unsigned char *m_bits;
 };
 
-// A wrapper class that adds the address range.  It is used when scanning
-// memory to see if an address has already been visited.
-class VisitBitmap: public Bitmap
-{
-public:
-    VisitBitmap(PolyWord *bottom, PolyWord *top):
-        m_bottom(bottom), m_top(top) { (void)Create(top - bottom); }
-
-    bool AlreadyVisited(PolyObject *p)   { return TestBit((PolyWord*)p - m_bottom); }
-    void SetVisited(PolyObject *p)       { SetBit((PolyWord*)p - m_bottom); }
-    bool InRange(PolyWord *p)            { return p >= m_bottom && p < m_top; }
-
-protected:
-    PolyWord  *m_bottom;
-    PolyWord  *m_top;
-};
-
 #endif
 
 

@@ -4,7 +4,7 @@
     Copyright (c) 2000
         Cambridge University Technical Services Limited
 
-    Further development David C.J. Matthews 2016, 2017, 2021
+    Further development David C.J. Matthews 2016, 2017, 2021, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -51,6 +51,7 @@
 #define ASSERT(x)
 #endif
 
+#include <map>
 
 #include "globals.h"
 #include "arb.h"
@@ -60,7 +61,6 @@
 #include "scanaddrs.h"
 #include "polystring.h"
 #include "save_vec.h"
-#include "bitmap.h"
 #include "memmgr.h"
 #include "mpoly.h"
 #include "processes.h"
@@ -90,17 +90,16 @@ public:
     }
     POLYUNSIGNED ShowObject(PolyObject *p);
     ProcessVisitAddresses(bool show);
-    ~ProcessVisitAddresses();
 
-    VisitBitmap *FindBitmap(PolyObject *p);
     void ShowBytes(PolyObject *start);
     void ShowCode(PolyObject *start);
     void ShowWords(PolyObject *start);
 
     POLYUNSIGNED total_length;
     bool     show_size;
-    VisitBitmap  **bitmaps;
-    unsigned   nBitmaps;
+
+    std::map<PolyObject*, bool> visited;
+
     // Counts of objects of each size for mutable and immutable data.
     unsigned   iprofile[MAX_PROF_LEN+1];
     unsigned   mprofile[MAX_PROF_LEN+1];
@@ -108,63 +107,14 @@ public:
 
 ProcessVisitAddresses::ProcessVisitAddresses(bool show)
 {
-    // Need to get the allocation lock here.  Another thread
-    // could allocate new local areas resulting in gMem.nlSpaces
-    // and gMem.lSpaces changing under our feet.
-    PLocker lock(&gMem.allocLock);
-
     total_length = 0;
     show_size    = show;
-
-    // Create a bitmap for each of the areas apart from the IO area
-    nBitmaps = (unsigned)(gMem.lSpaces.size()+gMem.pSpaces.size()+gMem.cSpaces.size()); //
-    bitmaps = new VisitBitmap*[nBitmaps];
-    unsigned bm = 0;
-    for (std::vector<PermanentMemSpace*>::iterator i = gMem.pSpaces.begin(); i < gMem.pSpaces.end(); i++)
-    {
-        MemSpace *space = *i;
-        // Permanent areas are filled with objects from the bottom.
-        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
-    }
-    for (std::vector<LocalMemSpace*>::iterator i = gMem.lSpaces.begin(); i < gMem.lSpaces.end(); i++)
-    {
-        LocalMemSpace *space = *i;
-        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
-    }
-    for (std::vector<CodeSpace *>::iterator i = gMem.cSpaces.begin(); i < gMem.cSpaces.end(); i++)
-    {
-        CodeSpace *space = *i;
-        bitmaps[bm++] = new VisitBitmap(space->bottom, space->top);
-    }
-    ASSERT(bm == nBitmaps);
 
     // Clear the profile counts.
     for (unsigned i = 0; i < MAX_PROF_LEN+1; i++)
     {
         iprofile[i] = mprofile[i] = 0;
     }
-}
-
-
-ProcessVisitAddresses::~ProcessVisitAddresses()
-{
-    if (bitmaps)
-    {
-        for (unsigned i = 0; i < nBitmaps; i++)
-            delete(bitmaps[i]);
-        delete[](bitmaps);
-    }
-}
-
-// Return the bitmap corresponding to the address or NULL if it isn't there.
-VisitBitmap *ProcessVisitAddresses::FindBitmap(PolyObject *p)
-{
-    for (unsigned i = 0; i < nBitmaps; i++)
-    {
-        VisitBitmap *bm = bitmaps[i];
-        if (bm->InRange((PolyWord*)p)) return bm;
-    }
-    return 0;
 }
 
 void ProcessVisitAddresses::ShowBytes(PolyObject *start)
@@ -289,19 +239,16 @@ PolyObject *ProcessVisitAddresses::ScanObjectAddress(PolyObject *base)
 // return true is it must be handled recursively.
 POLYUNSIGNED ProcessVisitAddresses::ShowObject(PolyObject *p)
 {
-    VisitBitmap *bm    = FindBitmap(p);
-    
-    if (bm == 0)
-    {
-        fprintf(polyStdout, "Bad address " ZERO_X "%p found\n", p);
-        return 0;
+    try {
+        /* Have we already visited this object? */
+        if (visited[p]) // If this has never been set it will return false
+            return 0;
+        visited[p] = true;
+    }
+    catch (std::bad_alloc&) {
+        return 0; // Could raise an exception here
     }
 
-    /* Have we already visited this object? */
-    if (bm->AlreadyVisited(p))
-        return 0;
-    
-    bm->SetVisited(p);
     
     POLYUNSIGNED obj_length = p->Length();
 
@@ -384,14 +331,19 @@ POLYUNSIGNED PolyObjSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
 
-    ProcessVisitAddresses process(false);
-    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
-    Handle result = Make_arbitrary_precision(taskData, process.total_length);
+    try {
+        ProcessVisitAddresses process(false);
+        if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
+        result = Make_arbitrary_precision(taskData, process.total_length);
+    }
+    catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
-    return result->Word().AsUnsigned();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 POLYUNSIGNED PolyShowSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
@@ -400,15 +352,20 @@ POLYUNSIGNED PolyShowSize(POLYUNSIGNED threadId, POLYUNSIGNED obj)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
 
-    ProcessVisitAddresses process(true);
-    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
-    fflush(polyStdout); /* We need this for Windows at least. */
-    Handle result = Make_arbitrary_precision(taskData, process.total_length);
+    try {
+        ProcessVisitAddresses process(true);
+        if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
+        fflush(polyStdout); /* We need this for Windows at least. */
+        result = Make_arbitrary_precision(taskData, process.total_length);
+    }
+    catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
-    return result->Word().AsUnsigned();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 POLYUNSIGNED PolyObjProfile(POLYUNSIGNED threadId, POLYUNSIGNED obj)
@@ -417,19 +374,24 @@ POLYUNSIGNED PolyObjProfile(POLYUNSIGNED threadId, POLYUNSIGNED obj)
     ASSERT(taskData != 0);
     taskData->PreRTSCall();
     Handle reset = taskData->saveVec.mark();
+    Handle result = 0;
 
-    ProcessVisitAddresses process(false);
-    if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
-    fprintf(polyStdout, "\nImmutable object sizes and counts\n");
-    printfprof(process.iprofile);
-    fprintf(polyStdout, "\nMutable object sizes and counts\n");
-    printfprof(process.mprofile);
-    fflush(polyStdout); /* We need this for Windows at least. */
-    Handle result = Make_arbitrary_precision(taskData, process.total_length);
+    try {
+        ProcessVisitAddresses process(false);
+        if (!PolyWord::FromUnsigned(obj).IsTagged()) process.ScanObjectAddress(PolyWord::FromUnsigned(obj).AsObjPtr());
+        fprintf(polyStdout, "\nImmutable object sizes and counts\n");
+        printfprof(process.iprofile);
+        fprintf(polyStdout, "\nMutable object sizes and counts\n");
+        printfprof(process.mprofile);
+        fflush(polyStdout); /* We need this for Windows at least. */
+        result = Make_arbitrary_precision(taskData, process.total_length);
+    }
+    catch (...) {} // If an ML exception is raised
 
     taskData->saveVec.reset(reset);
     taskData->PostRTSCall();
-    return result->Word().AsUnsigned();
+    if (result == 0) return TAGGED(0).AsUnsigned();
+    else return result->Word().AsUnsigned();
 }
 
 struct _entrypts objSizeEPT[] =
