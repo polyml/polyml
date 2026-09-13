@@ -295,7 +295,7 @@ struct
         val wordSize = maxBits
         val op << = fn (a, b) => if Word.>=(b, maxBits) then zero else a << b
         val op >> = fn (a, b) => if Word.>=(b, maxBits) then zero else a >> b
-        val op ~>> = fn (a, b) => a ~>> (if Word.>(b, maxBits) then maxBits else b)
+        val op ~>> = fn (a, b) => a ~>> (if Word.>=(b, maxBits) then Word.-(maxBits, 0w1) else b)
     end
 
     local
