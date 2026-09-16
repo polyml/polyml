@@ -1,7 +1,7 @@
 (*
     Title:      Standard Basis Library: Pack Real structures and signatures
     Author:     David Matthews
-    Copyright   David Matthews 2000, 2015, 2021, 2023
+    Copyright   David Matthews 2000, 2015, 2021, 2023, 2026
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -98,49 +98,44 @@ struct
 
     fun subVec(v, i) =
     let
+        val _ =
+            (* Compute this as arbitrary precision.  There could be an overflow if i is very large. *)
+            if LargeInt.fromInt i * Word.toLargeInt realSize + LargeInt.fromInt bytesPerElem > LargeInt.fromInt(Word8Vector.length v)
+            then raise Subscript
+            else ()
         val iW = unsignedShortOrRaiseSubscript i * realSize
+        val r = allocBytes realSize
     in
-        if iW >= Word.fromInt(Word8Vector.length v)
-        then raise Subscript (* This IS defined. *)
-        else
-        let
-            val r = allocBytes realSize
-        in
-            doMove(w8vectorAsAddress v, wordSize + iW, r, 0w0, isBigEndian);
-            RunCall.clearMutableBit r;
-            (RunCall.unsafeCast r): real
-        end
+        doMove(w8vectorAsAddress v, wordSize + iW, r, 0w0, isBigEndian);
+        RunCall.clearMutableBit r;
+        (RunCall.unsafeCast r): real
     end
 
     fun subArr(Array(l, v), i) =
     let
+        val _ =
+            if LargeInt.fromInt i * Word.toLargeInt realSize + LargeInt.fromInt bytesPerElem > Word.toLargeInt l
+            then raise Subscript
+            else ()
         val iW = unsignedShortOrRaiseSubscript i * realSize
+        val r = allocBytes realSize
     in
-        if iW >= l
-        then raise Subscript (* This IS defined. *)
-        else
-        let
-            val r = allocBytes realSize
-        in
-            doMove(v, iW, r, 0w0, isBigEndian);
-            RunCall.clearMutableBit r;
-            (RunCall.unsafeCast r): real
-        end
+        doMove(v, iW, r, 0w0, isBigEndian);
+        RunCall.clearMutableBit r;
+        (RunCall.unsafeCast r): real
     end
 
     fun update(Array(l, v), i, r) =
     let
+        val _ =
+            if LargeInt.fromInt i * Word.toLargeInt realSize + LargeInt.fromInt bytesPerElem > Word.toLargeInt l
+            then raise Subscript
+            else ()
         val iW = unsignedShortOrRaiseSubscript i * realSize
+        (* r is actually represented by a pointer to a vector. *)
+        val addr: address = RunCall.unsafeCast r
     in
-        if iW >= l
-        then raise Subscript (* This IS defined. *)
-        else
-        let
-            (* r is actually represented by a pointer to a vector. *)
-            val addr: address = RunCall.unsafeCast r
-        in
-            doMove(addr, 0w0, v, iW, isBigEndian)
-        end
+        doMove(addr, 0w0, v, iW, isBigEndian)
     end
 end;
 
