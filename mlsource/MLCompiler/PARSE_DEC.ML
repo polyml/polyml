@@ -473,15 +473,15 @@ struct
             case LEX.sy lex of
                 IntegerConst => (* Read a precedence number *)
                 let
-                    val num = valOf(Int.fromString (LEX.id lex))
+                    (* This is defined to be a single digit. *)
+                    val precedence = LEX.id lex
+                    val precNum =
+                        if String.size precedence <> 1
+                        then (LEX.errorMessage (lex, LEX.location lex, "Precedence must be a single digit only"); 0)
+                        else valOf(Int.fromString precedence)
                 in
-                    if num < 0 orelse num > 9
-                    then LEX.errorMessage (lex, LEX.location lex,
-                          "Precedence " ^ LEX.id lex ^
-                          " not allowed, must be between 0 and 9")
-                    else ();
                     LEX.insymbol lex;
-                    num
+                    precNum
                 end
             |   _ => 0 (* default is zero *);
 
