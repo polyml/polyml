@@ -93,7 +93,10 @@ struct
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{typeVar=ref(SOME(typ as FreeTypeVar _)), ...}, ...}) = typ
 
-    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar _, ...}) = raise InternalError "typeFromTypeParse: Not set"
+        (* This next case can occur if there has been an error detected during the name-lookup/type checking pass.  We may
+           not have set the type variable so create a type variable for printing in an error message. See issue #302. *)
+    |   typeFromTypeParse(ParseTypeId{ types=ParseTypeFreeVar{name,  equality, ...}, ...}) =
+                FreeTypeVar{name=name, equality=equality, level=NotGeneralisable 1, uid=makeUniqueId() }
 
     |   typeFromTypeParse(ParseTypeId{ types=ParseTypeBoundVar{index=TVIndex index, ...}, ...}) = createBoundVar false index
 
