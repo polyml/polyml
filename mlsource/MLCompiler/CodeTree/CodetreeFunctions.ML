@@ -348,23 +348,24 @@ struct
     local
         val except: exn = InternalError "Invalid load encountered in compiler"
         (* Exception value to use for invalid cases.  We put this in the code
-           but it should never actually be executed.  *)
+           but it should never actually be executed.
+           Note: this previously only raised this exception if we were discriminating on
+           a datatype and instead raised an InternalError if we had a tuple.  It is possible
+           to have an invalid selection even on a tuple if the tuple is within an exception
+           packet.  See #301. *)
         val raiseError = Raise (Constnt (toMachineWord except, []))
     in
         (* Look for an entry in a tuple. Used in both the optimiser and in mkInd. *)
-        fun findEntryInBlock (Tuple { fields, isVariant, ...}, offset, isVar) =
+        fun findEntryInBlock (Tuple { fields, ...}, offset, _) =
             (
-                isVariant = isVar orelse raise InternalError "findEntryInBlock: tuple/datatype mismatch";
                 if offset < List.length fields
                 then List.nth(fields, offset)
                 (* This can arise if we're processing a branch of a case discriminating on
                    a datatype which won't actually match at run-time. e.g. Tests/Succeed/Test030. *)
-                else if isVar
-                then raiseError
-                else raise InternalError "findEntryInBlock: invalid address"
+                else raiseError
             )
 
-        |   findEntryInBlock (Constnt (b, props), offset, isVar) =
+        |   findEntryInBlock (Constnt (b, props), offset, _) =
             let
                 (* Find the tuple property if it is present and extract the field props. *)
                 val fieldProps =
@@ -394,9 +395,7 @@ struct
                     if isShort b
                         orelse not (Address.isWords (toAddress b))
                         orelse Address.length (toAddress b) <= Word.fromInt offset
-                    then if isVar
                     then raiseError
-                    else raise InternalError "findEntryInBlock: invalid address"
                     else Constnt (loadWord (toAddress b, Word.fromInt offset), fieldProps)
             end
 
