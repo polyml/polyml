@@ -424,6 +424,20 @@ struct
         |   buildAot (TupleTree _, _, _, _, _) =
                 raise Misc.InternalError "pattern is not a tuple in a-o-t"
 
+        |   buildAot (vars as Labelled {recList=[], expType=ref expType, location, ...}, tree, patNo, _, { lex, ...}) =
+            let
+                (* Generally empty records are treated as unit but this case can occur if we have an
+                   empty flexible record.  It may not have been frozen or it could have been unified
+                   with unit. *)
+                (* Check that the type is frozen. *)
+                val () =
+                    if recordNotFrozen expType
+                    then errorNear (lex, true, vars, location, "Can't find a fixed record type.")
+                    else ()
+            in
+                addDefault tree patNo (* Treat as default. *)
+            end
+
         |   buildAot (vars as Labelled {recList, expType=ref expType, location, ...},
                       tree, patNo, _, context as { lex, ...}) =
             let
