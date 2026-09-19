@@ -129,29 +129,34 @@ struct
         fun typeFromTypeParse(ParseTypeConstruction{ args, name, location, foundConstructor, ...}) =
             let
                 (* Assign constructor, then the parameters. *)
-                val TypeConstrSet(constructor, _) = lookupType (name, location)
-                val () =
-                    (* Check that it has the correct arity. *)
-                    case constructor of
-                        TypeConstrs{name=tcName, ...} =>
-                        let
-                            val arity = tcArity constructor
-                            val num = length args
-                        in
-                            if arity <> num andalso not (isUndefinedTypeConstr constructor)
-                            then (* Give an error message *)
-                            LEX.errorMessage (lex, location,
-                                String.concat["Type constructor (", tcName,
-                                    ") requires ", Int.toString arity, " type(s) not ",
-                                    Int.toString num])
-                            else foundConstructor := constructor
-                        end
-                val argTypes = List.map typeFromTypeParse args
+                val TypeConstrSet(constructor as TypeConstrs{name=tcName, ...}, _) = lookupType (name, location)
             in
                 if isUndefinedTypeConstr constructor
                 then BadType
-                else TypeConstruction {name = name, constr = constructor,
+                else
+                let
+                    val arity = tcArity constructor
+                    and num = length args
+                in
+                    (* Check the arity before creating the type.  *)
+                    if arity <> num
+                    then
+                    (
+                        LEX.errorMessage (lex, location,
+                            String.concat["Type constructor (", tcName,
+                                ") requires ", Int.toString arity, " type(s) not ",
+                                Int.toString num]);
+                        BadType
+                    )
+                    else
+                    let
+                        val () = foundConstructor := constructor
+                        val argTypes = List.map typeFromTypeParse args
+                    in
+                        TypeConstruction {name = name, constr = constructor,
                                   args = argTypes, locations = [DeclaredAt location]}
+                    end
+                end
             end
 
         |   typeFromTypeParse(ParseTypeProduct{ fields, ...}) =
