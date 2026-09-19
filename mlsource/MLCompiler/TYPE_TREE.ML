@@ -2243,7 +2243,12 @@ struct
                     val (reclRef, recB) = followRefChainToRef recList
                     val (fullRef, _) = followRefChainToRef fullList
                     val finalList = matchRecords (recA, tA, bvMapA, true, false, recB, tB, bvMapB, false, equality)
-                    val () = reclRef := ChainEnd finalList
+
+                    val () =
+                        if recordOccursCheck(reclRef, finalList)
+                        then cantMatch (tA, tB, "(Flexible record occurs in type)")
+                        else reclRef := ChainEnd finalList
+
                     val () = fullRef := ChainEnd {names=map #name finalList, frozen=true}
                 in
                     ()
@@ -2255,7 +2260,11 @@ struct
                     val (reclRef, recA) = followRefChainToRef recList
                     val (fullRef, _) = followRefChainToRef fullList
                     val finalList = matchRecords (recA, tA, bvMapA, false, equality, recB, tB, bvMapB, true, false)
-                    val () = reclRef := ChainEnd finalList
+
+                    val () =
+                        if recordOccursCheck(reclRef, finalList)
+                        then cantMatch (tA, tB, "(Flexible record occurs in type)")
+                        else reclRef := ChainEnd finalList
                     val () = fullRef := ChainEnd {names=map #name finalList, frozen=true}
                 in
                     ()
@@ -2285,9 +2294,12 @@ struct
                     else
                     let
                         val finalList = matchRecords (recA, tA, bvMapA, false, eqA, recB, tB, bvMapB, false, eqB)
+                        val () =
+                            if recordOccursCheck(reclRefA, finalList) orelse recordOccursCheck(reclRefB, finalList)
+                            then cantMatch (tA, tB, "(Flexible record occurs in type)")
+                            else (reclRefA := ChainEnd finalList; reclRefB := ChainRef reclRefA)
+
                         val fullNames = map #name finalList
-                        val () = reclRefA := ChainEnd finalList
-                        val () = reclRefB := ChainRef reclRefA
                         (* Even if they're different record instances they could already share generic instances. *)
                         val () =
                             if fullRefA = fullRefB
@@ -2372,6 +2384,48 @@ struct
         in
             combinedList
         end
+
+            (* We cannot make this assignment if the type we are assigning contains this flexible record. *)
+            and recordOccursCheck(reclRef, finalList) =
+            let
+                fun recordOccursInType(_, true) = true
+
+                |   recordOccursInType(FlexibleRecordVar{recList, ...}, _) =
+                    let
+                        val (newFlexRef, newReclist) = followRefChainToRef recList
+                    in
+                        newFlexRef = reclRef orelse (* If this is the same record we have a problem. *)
+                            List.foldl (fn ({typeOf, ... }, v) => recordOccursInType (typeOf, v)) false newReclist
+                    end
+
+                |   recordOccursInType(TypeVar(TypeVariable{link=ref l, ...}), _) =
+                    (
+                        case followRefChainToEnd l of
+                            SOME(Instance(arg, _)) => recordOccursInType(arg, false)
+                        |   _ => false
+                    )
+
+                |   recordOccursInType(TypeConstruction {args, constr=TypeConstrs{identifier = TypeId {idKind = TypeFn{usedTvs, ...}, ...}, ...}, ...}, _) =
+                    (* Type function: Only process arguments that are actually used in the type expression. *)
+                    let
+                        fun checkArgs([], _, b) = b
+                        |   checkArgs(arg::args, n, b) =
+                                checkArgs(args, n+1, 
+                                    if BoolVector.sub(usedTvs, n) then recordOccursInType (arg, b) else b)  
+                    in
+                        checkArgs(args, 0, false)
+                    end
+
+                |   recordOccursInType(TypeConstruction {args, ...}, _) = (* Datatypes. *) List.foldl recordOccursInType false args
+
+                |   recordOccursInType(FunctionType {arg, result}, _) = recordOccursInType(arg, false) orelse recordOccursInType(result, false)
+
+                |   recordOccursInType(LabelledRecord recList, _) = List.foldl (fn ({typeOf, ... }, v) => recordOccursInType (typeOf, v)) false recList
+
+                |   recordOccursInType _ = false
+            in
+                List.foldl (fn ({typeOf, ...}, t) => recordOccursInType(typeOf, t)) false finalList
+            end
 
         val argsA as (typeA, _) =
             case instanceA of
