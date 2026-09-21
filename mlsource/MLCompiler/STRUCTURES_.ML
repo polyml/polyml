@@ -2222,24 +2222,35 @@ struct
                                 COPIER.openSignature 
                                 (argSigWithSelected,
                                 {
-                                  enterType   =
-                                    fn (s,v) => (debugArgTypeConstrs := v :: ! debugArgTypeConstrs; #enterType argEnv (s, v)),
-                                  enterStruct =
-                                    fn (name, strVal) =>
-                                    let
-                                        val argStruct = makeSelectedStruct (strVal, resArg, [])
-                                    in
-                                        debugArgStructs := argStruct :: ! debugArgStructs;
-                                        #enterStruct argEnv (name, argStruct)
-                                    end,
-                                  enterVal    =
-                                    fn (name, value) =>
-                                    let
-                                        val argVal = mkSelectedVar (value, resArg, [])
-                                    in
-                                        debugArgVals := argVal :: ! debugArgVals;
-                                        #enterVal argEnv (name, argVal)
-                                    end
+                                    enterType =
+                                        fn (name, TypeConstrSet(ty, valConstrs)) =>
+                                        let
+                                            (* We also have to turn the value constructors into "selected" entries in
+                                               case we use datatype eplication.  This is copied from the equivalent
+                                               code in TYPECHECK_PARSETREE. *)
+                                            val newTypeSet =
+                                                TypeConstrSet(ty,
+                                                    List.map (fn c => mkSelectedVar (c, resArg, [])) valConstrs)
+                                        in
+                                            debugArgTypeConstrs := newTypeSet :: ! debugArgTypeConstrs;
+                                            #enterType argEnv (name, newTypeSet)
+                                        end,
+                                    enterStruct =
+                                        fn (name, strVal) =>
+                                        let
+                                            val argStruct = makeSelectedStruct (strVal, resArg, [])
+                                        in
+                                            debugArgStructs := argStruct :: ! debugArgStructs;
+                                            #enterStruct argEnv (name, argStruct)
+                                        end,
+                                    enterVal    =
+                                        fn (name, value) =>
+                                        let
+                                            val argVal = mkSelectedVar (value, resArg, [])
+                                        in
+                                            debugArgVals := argVal :: ! debugArgVals;
+                                            #enterVal argEnv (name, argVal)
+                                        end
                                 },
                                 "")
                     end
