@@ -723,6 +723,17 @@ struct
             else original
         end
 
+    |   canonicalise(original as (TypeConstruction{constr=TypeConstrs{identifier = TypeId {idKind = TypeFn{resType, usedTvs, ...}, ...}, ...}, args, ...}, bvMap)) =
+        (* If this is a type function that does not use one or more of its arguments we expand it.  Otherwise we can get problems with occurs checks. *)
+        if BoolVector.exists not usedTvs
+        then
+        let
+            val argMap = createTypeFnArgumentMap(args, bvMap)
+        in
+            canonicalise(resType, argMap)
+        end
+        else original
+
     |   canonicalise original = original
 
     local
@@ -750,7 +761,7 @@ struct
                 in
                     mkTypeConstruction (name, constr, copiedArgs, locations)
                 end 
-       
+
             |   FunctionType {arg, result} => 
                 let
                     val copiedArg = copyType (arg, mapBTV)
@@ -795,7 +806,6 @@ struct
         (* Backwards compatibility.  This should be replaced by canonicalise. *)
         fun eventual typ =
             reduceToType(Instance(getCanonical(SimpleInstance typ)))
-
     end
 
     (* Get a type from an instance.  Needed when we have to construct a type, say a tuple, from components. *)
@@ -1933,19 +1943,7 @@ struct
                             )
                         end
 
-                    |   TypeConstruction {args, constr=TypeConstrs{identifier = TypeId {idKind = TypeFn{usedTvs, ...}, ...}, ...}, ...} =>
-                        (* Type function: Only process arguments that are actually used in the type expression. *)
-                        let
-                            fun checkArgs([], _, b) = b
-                            |   checkArgs(arg::args, n, b) =
-                                    checkArgs(args, n+1, 
-                                        if BoolVector.sub(usedTvs, n) then occursCheckFails (arg, map) b else b)  
-                        in
-                            checkArgs(args, 0, false)
-                        end
-
                     |   TypeConstruction {args, ...} =>
-                            (* Datatypes. *)
                             List.foldl (fn (t, v) => occursCheckFails(t, map) v) false args
 
                     |   FunctionType {arg, result} =>
@@ -1967,44 +1965,11 @@ struct
                     |   _ => false
 
                 end
-                
-            local
-                (* Generally if the type we're assigning contains the type variable that
-                   is an "occurs check" failure.  If we have a type function it is possible
-                   that what looks like an occurs check failure is actually valid; either
-                   because the type variable is not actually used or because the function
-                   boils down to the variable itself.  We need to unwrap it sufficiently
-                   that any apparent occurs check has been eliminated.  We must not assign
-                   the original type to the type variable because that would create a loop. *)
-                fun followVarsAndTypeFunctions(t, bvMap) =
-                case canonicalise(t, bvMap) of
-                    inst as (TypeConstruction{constr=TypeConstrs{identifier = TypeId {idKind = TypeFn{resType, ...}, ...}, ...}, args, ...}, newBvMap) =>
-                        let
-                            fun occurs(TypeVar tvar, _) b = b orelse sameTv(tvar, var) | occurs _ b = b
-                        in
-                            if List.foldl (fn (t, b) => foldType occurs (t, newBvMap) b) false args
-                            then
-                            let
-                                val argMap = createTypeFnArgumentMap(args, newBvMap)
-                            in
-                                followVarsAndTypeFunctions(resType, argMap)
-                            end 
-                            else inst
-                        end
-                |   inst => inst
-            in
-                val finalInstance as (finalType, _) = followVarsAndTypeFunctions(t, bvMap)
-            end
-  
-            (* We may actually have the same type variable after any type abbreviations
-                have been followed. *)
-            val reallyTheSame =
-                case finalType of
-                    TypeVar tv => sameTv (tv, var)
-                |   _ => false
+
+            val finalInstance = (t, bvMap)
 
         in (* start of "assign" *)
-            if reallyTheSame
+            if (case t of TypeVar tv => sameTv (tv, var) | _ => false)
             then () (* Don't apply the occurs check or check for non-unifiable. *)
 
             else if occursCheckFails finalInstance false
@@ -2032,7 +1997,7 @@ struct
                    it could prevent us producing useful error information and it could
                    also result in unnecessary consequential errors. *)
                 case !matchResult of
-                    NONE => if reallyTheSame then () else varLinkVar := ChainEnd(SOME(Instance finalInstance))
+                    NONE => varLinkVar := ChainEnd(SOME(Instance finalInstance))
                 |   SOME _ => ()
             end
         end (* assign *)

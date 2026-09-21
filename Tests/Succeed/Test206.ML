@@ -24,3 +24,10 @@ in
     if x then y else g y
 end;
 
+fun f (x, y) =
+let
+    val g :'b -> int -> ('a, 'b, 'c) s = fn x => raise Match
+
+in
+    if x then y else g y
+end;
