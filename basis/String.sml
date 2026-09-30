@@ -1360,15 +1360,27 @@ in
     
         (* Since we've already checked the bounds we don't need to do it here. *)
         fun string(Slice{vector=s, start=i, length=l}) = unsafeSubstring(s, i, l)
-    
-        (* Check that the index and length are valid. *)
-        fun substring(s, i, j) =
-            if i < 0 orelse j < 0 orelse String.size s < i+j
-            then raise General.Subscript
-            else Slice{vector=s, start=intAsWord i, length=intAsWord j}
 
-        fun extract(s, i, NONE) = substring(s, i, String.size s-i)
-         |  extract(s, i, SOME j) = substring(s, i, j)
+        fun substring(s, i, j) =
+        let
+            val i' = LibrarySupport.unsignedShortOrRaiseSubscript i
+            val j' = LibrarySupport.unsignedShortOrRaiseSubscript j
+        in
+            if i'+j' > sizeAsWord s
+            then raise General.Subscript
+            else Slice{vector=s, start=i', length=j'}
+        end
+
+        fun extract(s, i, NONE) =
+            let
+                val i' = LibrarySupport.unsignedShortOrRaiseSubscript i
+                and s' = sizeAsWord s
+            in
+                if i' > s'
+                then raise General.Subscript
+                else Slice{vector=s, start=i', length=s' - i'}
+            end
+        |   extract(s, i, SOME j) = substring(s, i, j)
 
         fun triml k = 
             if k < 0 then raise General.Subscript
