@@ -662,20 +662,16 @@ struct
                                 if includeReg i
                                 then case Vector.sub(pregProps, i) of
                                     RegPropGeneral => SOME(PReg i)
-                                |   RegPropCacheTagged => SOME(PReg i)
                                 |   RegPropUntagged => NONE
                                 |   RegPropStack _ => NONE
-                                |   RegPropCacheUntagged => NONE
                                 |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
                                 else NONE
                             and getNoSave i =
                                 if includeReg i
                                 then case Vector.sub(pregProps, i) of
                                     RegPropGeneral => NONE
-                                |   RegPropCacheTagged => NONE
                                 |   RegPropUntagged => SOME(PReg i)
                                 |   RegPropStack _ => NONE
-                                |   RegPropCacheUntagged => SOME(PReg i)
                                 |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
                                 else NONE
                         in
@@ -708,18 +704,14 @@ struct
                                     fun getSave i =
                                         case Vector.sub(pregProps, i) of
                                         RegPropGeneral => SOME(PReg i)
-                                    |   RegPropCacheTagged => SOME(PReg i)
                                     |   RegPropUntagged => NONE
                                     |   RegPropStack _ => NONE
-                                    |   RegPropCacheUntagged => NONE
                                     |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
                                     and getNoSave i =
                                         case Vector.sub(pregProps, i) of
                                         RegPropGeneral => NONE
-                                    |   RegPropCacheTagged => NONE
                                     |   RegPropUntagged => SOME(PReg i)
                                     |   RegPropStack _ => NONE
-                                    |   RegPropCacheUntagged => SOME(PReg i)
                                     |   RegPropMultiple => raise InternalError "getSave: RegPropMultiple"
                                     val currentRegs = union(activeAfterThis, passThrough)
                                     (* Have to include the loop registers.  These were previously included
@@ -756,10 +748,7 @@ struct
                             fun pushAllButDests i =
                                 if List.exists(fn j => i=j) destRegNos
                                 then ()
-                                else case Vector.sub(pregProps, i) of
-                                    RegPropCacheTagged => raise InternalError "pushRegisters: cache reg"
-                                |   RegPropCacheUntagged => raise InternalError "pushRegisters: cache reg"
-                                |  _ => Array.update(requirePushOrDiscard, i, true)
+                                else Array.update(requirePushOrDiscard, i, true)
                         in
                             (* We need to push everything active after this
                                except the result register. *)
