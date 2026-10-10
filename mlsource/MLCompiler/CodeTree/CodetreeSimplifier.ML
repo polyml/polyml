@@ -905,7 +905,7 @@ struct
                 (cGen, cDecs, cSpec)
             end
 
-        |   (_, gen, limit) => (* Anything else. *)
+        |   (_, gen, _) => (* Anything else. *)
             let
                 val copiedArgs = map (fn (arg, argType) => (simplify(arg, context), argType)) argList
                 val evCopiedCode = 

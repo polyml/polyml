@@ -818,7 +818,7 @@ struct
 
     fun optimise (context, code, use) =
     let
-        val { reprocess, makeAddr, codeTreePrinter, maxInlineSize = _ } = context
+        val { reprocess, makeAddr = _, codeTreePrinter, maxInlineSize = _ } = context
 
         fun doOptimise use (Lambda lambda) =
                 SOME(mapLambdaResult(optLambda(context, use, lambda, LCNormal)))
@@ -948,7 +948,7 @@ struct
         |   _ => optimise(context, leaf_fn code, use)
     end
 
-    and optimiseBeginLoop (context as { reprocess, makeAddr, codeTreePrinter, ...}, tailContext as { loop_fn = _, leaf_fn }, loop, arguments) =
+    and optimiseBeginLoop (context as { reprocess, makeAddr, codeTreePrinter, ...}, { loop_fn = _, leaf_fn }, loop, arguments) =
     let
         (* It's unsafe to detuple within a loop since it could potentially
            leave a Loop in a non tail position. Currently it's safe to
