@@ -265,10 +265,9 @@ local
          |  concatWith _ [one] = one
          |  concatWith s (hd :: tl) =
             let
-                fun mk [] = []
-                  | mk (h::t) = s :: h :: mk t
+                fun prepend (part, chunks) = part :: s :: chunks
             in
-                concat(hd :: mk tl)
+                concatRev (List.foldl prepend [hd] tl)
             end
         
         (* implode is very similar to concat, in fact it could be defined
