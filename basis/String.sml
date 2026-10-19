@@ -324,17 +324,12 @@ local
             val len = sizeAsWord s
         in
             let
-                (* Accumulate the characters into a list. *)
+                (* Accumulate translated strings in reverse order. *)
                 fun mapChars i l =
                     if i = len then l
                     else mapChars (i+0w1) (f(RunCall.loadByteFromImmutable(s, i+wordSize)) :: l)
-                
-                (* Reverse has not yet been defined. *)
-                fun revAppend([], a) = a
-                |   revAppend(x::y, a) = revAppend(y, x::a)
             in
-                (* Reverse the list and concatenate it. *)
-                concat(revAppend(mapChars 0w0 [], []))
+                concatRev (mapChars 0w0 [])
             end
         end
         
@@ -1054,9 +1049,9 @@ in
             fun scanString str (l: string list) haveRead =
                 case scanBase getc str of
                     NONE => (* Invalid escape sequence *)
-                        if haveRead then SOME(concat(rev l), str) else NONE
+                        if haveRead then SOME (concatRev l, str) else NONE
                 |   SOME("", strm') => (* End of input or read a format sequence. *)
-                        (case getc strm' of NONE => SOME(concat(rev l), strm') | _ => scanString strm' l true)
+                        (case getc strm' of NONE => SOME (concatRev l, strm') | _ => scanString strm' l true)
                 |   SOME(s, strm') => scanString strm' (s :: l) true (* More to do. *)
         in
             scanString str [] false
