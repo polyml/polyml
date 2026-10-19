@@ -201,8 +201,7 @@ local
         local
             fun concatUsing _ [] = ""
              |  concatUsing _ [s] = s
-                (* Could also skip empty-string prefixes in either direction:
-                   concatUsing copy (""::s) = concatUsing copy s. *)
+             |  concatUsing copy ("" :: rest) = concatUsing copy rest
              |  concatUsing copy L =
                 let
                     fun total n [] = n
