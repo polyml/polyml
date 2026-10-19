@@ -198,41 +198,68 @@ local
    
         val str: char ->string = charAsString
 
-        (* Concatentate a list of strings. *)
-        fun concat [] = ""
-         |  concat [s] = s (* Handle special case to reduce copying. *)
-            (* Could also handle the case of concat(""::s) = concat s *)
-         |  concat L =
-            let
-                fun total n []     = n
-                 | total n (H::T) = total (n + size H) T
-                (* How many characters do we have to implode?   This could
-                   possibly be long (although we would probably have run out
-                   of memory long before) so we have to add these as integers
-                   and then raise an exception if it's not short. *)
-                val chars : int = total 0 L;
-            in
-                if chars = 0
-                then ""
-                else (* Normal case *)
+        local
+            fun concatUsing _ [] = ""
+             |  concatUsing _ [s] = s
+                (* Could also skip empty-string prefixes in either direction:
+                   concatUsing copy (""::s) = concatUsing copy s. *)
+             |  concatUsing copy L =
                 let
-                    val chs = unsignedShortOrRaiseSize chars (* Check it's short. *)
-                    val vec = LibrarySupport.allocString chs
-                  
+                    fun total n [] = n
+                     |  total n (H::T) = total (n + size H) T
+                    (* Sum as integers so a long result can be detected before
+                       converting the length to a word. *)
+                    val chars : int = total 0 L
+                in
+                    if chars = 0
+                    then ""
+                    else
+                    let
+                        val chs = unsignedShortOrRaiseSize chars
+                        val vec = LibrarySupport.allocString chs
+                    in
+                        copy(vec, chs, L);
+                        RunCall.clearMutableBit vec;
+                        vec
+                    end
+                end
+
+            fun copyForward (vec, _, strings) =
+                let
                     fun copy (_, []:string list) = ()
-                     | copy (i, H :: T) =
+                     |  copy (i, H :: T) =
                         let
                             val src_len = sizeAsWord H
                         in
                             bcopy(H, vec, wordSize, i, src_len);
-                            copy(i+src_len, T)
+                            copy(i + src_len, T)
                         end
                 in
-                copy (wordSize, L);
-                RunCall.clearMutableBit vec;
-                vec
+                    copy(wordSize, strings)
                 end
-            end (* concat *)
+
+            fun copyBackward (vec, chars, strings) =
+                let
+                    (* i is the end of the still-unfilled prefix, including
+                       the length word.  Each string is copied forwards. *)
+                    fun copy (_, []:string list) = ()
+                     |  copy (i, H :: T) =
+                        let
+                            val src_len = sizeAsWord H
+                            val start = i - src_len
+                        in
+                            bcopy(H, vec, wordSize, start, src_len);
+                            copy(start, T)
+                        end
+                in
+                    copy(wordSize + chars, strings)
+                end
+        in
+            val concat = concatUsing copyForward
+
+            (* Poly/ML extension: equivalent to concat o List.rev without the intermediate list. *)
+            val concatRev = concatUsing copyBackward
+        end
 
         fun concatWith _ [] = ""
          |  concatWith _ [one] = one

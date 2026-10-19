@@ -75,6 +75,8 @@ sig
     val extract : (string * int * int option) -> string
     val substring : (string * int * int) -> string
     val concat : string list -> string
+    (* Poly/ML extension: equivalent to concat o List.rev. *)
+    val concatRev : string list -> string
     val concatWith: string -> string list -> string
     val ^ : (string * string) -> string
     val str : char -> string
