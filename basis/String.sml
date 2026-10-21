@@ -200,63 +200,65 @@ local
 
         local
             fun concatUsing _ [] = ""
-             |  concatUsing _ [s] = s
-             |  concatUsing copy ("" :: rest) = concatUsing copy rest
-             |  concatUsing copy L =
+              | concatUsing _ [s] = s
+              | concatUsing copy ("" :: T) = concatUsing copy T
+              | concatUsing copy L =
                 let
                     fun total n [] = n
-                     |  total n (H::T) = total (n + size H) T
+                      | total n (H :: T) = total (n + size H) T
                     (* Sum as integers so a long result can be detected before
                        converting the length to a word. *)
                     val chars : int = total 0 L
                 in
-                    if chars = 0
-                    then ""
+                    if chars = 0 then
+                        ""
                     else
-                    let
-                        val chs = unsignedShortOrRaiseSize chars
-                        val vec = LibrarySupport.allocString chs
-                    in
-                        copy(vec, chs, L);
-                        RunCall.clearMutableBit vec;
-                        vec
-                    end
+                        let
+                            val chs = unsignedShortOrRaiseSize chars (* Check it's short. *)
+                            val vec = LibrarySupport.allocString chs
+                        in
+                            copy (vec, chs, L);
+                            RunCall.clearMutableBit vec;
+                            vec
+                        end
                 end
 
             fun copyForward (vec, _, strings) =
                 let
-                    fun copy (_, []:string list) = ()
-                     |  copy (i, H :: T) =
+                    fun copy (_, []) = ()
+                      | copy (i, H :: T) =
                         let
                             val src_len = sizeAsWord H
                         in
-                            bcopy(H, vec, wordSize, i, src_len);
-                            copy(i + src_len, T)
+                            bcopy (H, vec, wordSize, i, src_len);
+                            copy (i + src_len, T)
                         end
                 in
-                    copy(wordSize, strings)
+                    copy (wordSize, strings)
                 end
 
             fun copyBackward (vec, chars, strings) =
                 let
                     (* i is the end of the still-unfilled prefix, including
-                       the length word.  Each string is copied forwards. *)
-                    fun copy (_, []:string list) = ()
-                     |  copy (i, H :: T) =
+                       the length word. Each string is copied forwards. *)
+                    fun copy (_, []) = ()
+                      | copy (i, H :: T) =
                         let
                             val src_len = sizeAsWord H
                             val start = i - src_len
                         in
-                            bcopy(H, vec, wordSize, start, src_len);
-                            copy(start, T)
+                            bcopy (H, vec, wordSize, start, src_len);
+                            copy (start, T)
                         end
                 in
-                    copy(wordSize + chars, strings)
+                    copy (wordSize + chars, strings)
                 end
         in
+            (* Concatenate a list of strings. *)
             val concat = concatUsing copyForward
 
-            (* Poly/ML extension: equivalent to concat o List.rev without the intermediate list. *)
+            (* Poly/ML extension: Concatenate a list of strings in reversed order,
+               equivalent to concat o List.rev without the intermediate list. *)
             val concatRev = concatUsing copyBackward
         end
 

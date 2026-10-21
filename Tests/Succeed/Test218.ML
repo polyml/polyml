@@ -197,7 +197,9 @@ fun checkSmallStack (name, f, expected) =
 in
 
 (* Verify that the stack limit rejects each non-tail-recursive specification
-   on this input, while the library functions succeed under the same limit. *)
+   on this input, while the library functions succeed under the same limit.
+   The five specification checks each produce an expected runtime warning:
+   "Warning - Unable to increase stack - interrupting thread". *)
 val () = List.app checkStackOverflow
     [("concat", Specification.concat),
      ("concatRev", Specification.concatRev),
