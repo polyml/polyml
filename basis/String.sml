@@ -199,16 +199,67 @@ local
         val str: char ->string = charAsString
 
         local
-            fun concatUsing _ [] = ""
-              | concatUsing _ [s] = s
-              | concatUsing copy ("" :: T) = concatUsing copy T
-              | concatUsing copy L =
+            fun copyForward (vec, _, separator, strings) =
                 let
-                    fun total n [] = n
-                      | total n (H :: T) = total (n + size H) T
+                    val sepLen = sizeAsWord separator
+                    fun copyForward (_, []) = ()
+                      | copyForward (i, [H]) =
+                            bcopy (H, vec, wordSize, i, sizeAsWord H)
+                      | copyForward (i, H :: T) =
+                        let
+                            val src_len = sizeAsWord H
+                            val next = i + src_len
+                        in
+                            bcopy (H, vec, wordSize, i, src_len);
+                            if sepLen = 0w0 then
+                                ()
+                            else
+                                bcopy (separator, vec, wordSize, next, sepLen);
+                            copyForward (next + sepLen, T)
+                        end
+                in
+                    copyForward (wordSize, strings)
+                end
+
+            fun copyBackward (vec, chars, separator, strings) =
+                let
+                    val sepLen = sizeAsWord separator
+                    (* i is the end of the still-unfilled prefix, including
+                       the length word. Each string is copied forwards. *)
+                    fun copyBackward (_, []) = ()
+                      | copyBackward (i, [H]) =
+                        let
+                            val src_len = sizeAsWord H
+                        in
+                            bcopy (H, vec, wordSize, i - src_len, src_len)
+                        end
+                      | copyBackward (i, H :: T) =
+                        let
+                            val src_len = sizeAsWord H
+                            val start = i - src_len
+                        in
+                            bcopy (H, vec, wordSize, start, src_len);
+                            if sepLen = 0w0 then
+                                ()
+                            else
+                                bcopy (separator, vec, wordSize, start - sepLen, sepLen);
+                            copyBackward (start - sepLen, T)
+                        end
+                in
+                    copyBackward (wordSize + chars, strings)
+                end
+
+            fun concatUsing _ _ [] = ""
+              | concatUsing _ _ [s] = s
+              | concatUsing isReverse "" ("" :: T) = concatUsing isReverse "" T
+              | concatUsing isReverse separator (L as H :: T) =
+                let
+                    val sepSize = size separator
+                    fun total sepSize n [] = n
+                      | total sepSize n (H :: T) = total sepSize (n + sepSize + size H) T
                     (* Sum as integers so a long result can be detected before
                        converting the length to a word. *)
-                    val chars : int = total 0 L
+                    val chars : int = total sepSize (size H) T
                 in
                     if chars = 0 then
                         ""
@@ -217,59 +268,25 @@ local
                             val chs = unsignedShortOrRaiseSize chars (* Check it's short. *)
                             val vec = LibrarySupport.allocString chs
                         in
-                            copy (vec, chs, L);
+                            if isReverse then
+                                copyBackward (vec, chs, separator, L)
+                            else
+                                copyForward (vec, chs, separator, L);
                             RunCall.clearMutableBit vec;
                             vec
                         end
                 end
-
-            fun copyForward (vec, _, strings) =
-                let
-                    fun copy (_, []) = ()
-                      | copy (i, H :: T) =
-                        let
-                            val src_len = sizeAsWord H
-                        in
-                            bcopy (H, vec, wordSize, i, src_len);
-                            copy (i + src_len, T)
-                        end
-                in
-                    copy (wordSize, strings)
-                end
-
-            fun copyBackward (vec, chars, strings) =
-                let
-                    (* i is the end of the still-unfilled prefix, including
-                       the length word. Each string is copied forwards. *)
-                    fun copy (_, []) = ()
-                      | copy (i, H :: T) =
-                        let
-                            val src_len = sizeAsWord H
-                            val start = i - src_len
-                        in
-                            bcopy (H, vec, wordSize, start, src_len);
-                            copy (start, T)
-                        end
-                in
-                    copy (wordSize + chars, strings)
-                end
         in
             (* Concatenate a list of strings. *)
-            val concat = concatUsing copyForward
+            val concat = concatUsing false ""
+
+            (* Concatenate a list of strings with a separator between the elements. *)
+            val concatWith = concatUsing false
 
             (* Poly/ML extension: Concatenate a list of strings in reversed order,
                equivalent to concat o List.rev without the intermediate list. *)
-            val concatRev = concatUsing copyBackward
+            val concatRev = concatUsing true ""
         end
-
-        fun concatWith _ [] = ""
-         |  concatWith _ [one] = one
-         |  concatWith s (hd :: tl) =
-            let
-                fun prepend (part, chunks) = part :: s :: chunks
-            in
-                concatRev (List.foldl prepend [hd] tl)
-            end
         
         (* implode is very similar to concat, in fact it could be defined
            as a cast version of it. *)

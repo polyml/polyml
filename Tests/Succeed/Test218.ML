@@ -235,12 +235,29 @@ val chunk = CharVector.tabulate (500, fn _ => #"a");
 val shorter = [chunk, chunk];
 val longer = List.tabulate (1000, fn _ => "a");
 
-(* Allocating an intermediate list would make allocation grow with the input. *)
-fun checkAllocation (name : string) (f : string list -> string) : unit =
-    if allocatedWords f shorter = allocatedWords f longer then
-        ()
-    else
-        raise Fail (name ^ " allocation grows with list length");
+(* Both the short and long inputs must allocate exactly the space occupied by
+   the result string, without temporary objects. *)
+fun checkAllocation (name : string) (f : string list -> string) shorter : unit =
+    let
+        val expectedWords = PolyML.objSize (f shorter)
+    in
+        if allocatedWords f shorter = expectedWords andalso
+           allocatedWords f longer = expectedWords then
+            ()
+        else
+            raise Fail (name ^ " allocates more than the result string")
+    end;
+
+fun checkWithAllocation separator =
+    let
+        val sepSize = String.size separator
+        val resultSize = 1000 + 999 * sepSize
+        fun block n = CharVector.tabulate (n, fn _ => #"a")
+        val fewer = [block (resultSize - sepSize - 1), "a"]
+    in
+        checkAllocation ("String.concatWith \"" ^ String.toString separator ^ "\"")
+            (String.concatWith separator) fewer
+    end;
 
 in
 
@@ -252,8 +269,9 @@ val () =
         let val reference = String.concat o List.rev in
             (* Verify that the profiler detects an actual intermediate list. *)
             if allocatedWords reference longer > allocatedWords reference shorter then
-                (checkAllocation "String.concat" String.concat;
-                 checkAllocation "String.concatRev" String.concatRev)
+                (checkAllocation "String.concat" String.concat shorter;
+                 checkAllocation "String.concatRev" String.concatRev shorter;
+                 List.app checkWithAllocation ["", " ", "::", "a longer separator"])
             else
                 raise Fail "Allocation profiler did not detect List.rev"
         end;
