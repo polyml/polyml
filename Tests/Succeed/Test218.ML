@@ -1,33 +1,54 @@
-(* Test String.concat and String.concatRev, which concatenate strings in forward
-   and reverse list order respectively, preserving each string. *)
+(* Test the String concatenation family: concat, concatRev, and concatWith. *)
 
-val () =
-    if String.concat ["abc", "def", "ghi"] = "abcdefghi" then
+fun verify name actual expected =
+    if actual = expected then
         ()
     else
-        raise Fail "String.concat";
+        raise Fail (name ^ ": expected \"" ^ String.toString expected ^
+            "\", got \"" ^ String.toString actual ^ "\"");
 
-val () =
-    if String.concatRev ["abc", "def", "ghi"] = "ghidefabc" then
-        ()
-    else
-        raise Fail "String.concatRev";
+val () = verify "String.concat example"
+    (String.concat ["abc", "def", "ghi"]) "abcdefghi";
 
-(* Compare with repeated ^ as well as concat o List.rev. *)
+val () = verify "String.concatWith example"
+    (String.concatWith " " ["abc", "def", "ghi"]) "abc def ghi";
+
+val () = verify "String.concatRev example"
+    (String.concatRev ["abc", "def", "ghi"]) "ghidefabc";
+
+structure Specification =
+struct
+    fun concat [] = ""
+      | concat (s :: rest) = s ^ concat rest
+
+    fun concatRev [] = ""
+      | concatRev (s :: rest) = concatRev rest ^ s
+
+    fun concatWith _ [] = ""
+      | concatWith _ [s] = s
+      | concatWith separator (s :: rest) = s ^ separator ^ concatWith separator rest
+end;
+
+(* Compare each concat function with its specification and some identities. *)
 fun check (strings : string list) : unit =
     let
         val forward = String.concat strings
         val backward = String.concatRev strings
-        val reversedForward = String.concat (List.rev strings)
-        val expectedForward = List.foldr (op ^) "" strings
-        val expectedBackward = List.foldl (op ^) "" strings
+        fun checkSeparator separator =
+            verify ("String.concatWith \"" ^ String.toString separator ^ "\"")
+                (String.concatWith separator strings) (Specification.concatWith separator strings)
     in
-        if backward = reversedForward andalso
-           forward = expectedForward andalso
-           backward = expectedBackward then
-            ()
-        else
-            raise Fail "String concatenation"
+        verify "String.concat"
+            forward (Specification.concat strings);
+        verify "String.concatWith \"\" (identity with String.concat)"
+            (String.concatWith "" strings) forward;
+        verify "String.concatRev"
+            backward (Specification.concatRev strings);
+        verify "String.concatRev (identity with String.concat o List.rev)"
+            backward (String.concat (List.rev strings));
+        List.app checkSeparator
+            [" ", "\t", "\n", "\000", ", ", "::", "\r\n", "\000\255",
+             "--- a longer separator spanning several machine words ---"]
     end;
 
 local
@@ -120,6 +141,78 @@ val () = check (List.tabulate (100, fn i =>
 
 (* Concatenate all byte values as individual strings. *)
 val () = check (List.tabulate (256, fn i => String.str (Char.chr i)));
+
+local
+
+(* Use a fresh thread so an already-grown stack cannot defeat the limit. *)
+fun withSmallStack f =
+    let
+        val mutex = Thread.Mutex.mutex ()
+        val finished = Thread.ConditionVar.conditionVar ()
+        val result : exn option option ref = ref NONE
+        fun worker () =
+            let
+                val outcome = (f (); NONE) handle exn => SOME exn
+                (* Remove the limit before reporting the outcome. *)
+                val () = Thread.Thread.setAttributes [Thread.Thread.MaximumMLStack NONE]
+            in
+                Thread.Mutex.lock mutex;
+                result := SOME outcome;
+                Thread.ConditionVar.signal finished;
+                Thread.Mutex.unlock mutex
+            end
+        val _ = Thread.Thread.fork (worker, [Thread.Thread.MaximumMLStack (SOME 3000)])
+        val () = Thread.Mutex.lock mutex
+        fun await () =
+            case !result of
+                NONE => (Thread.ConditionVar.wait (finished, mutex); await ())
+              | SOME outcome => outcome
+        val outcome = await ()
+        val () = Thread.Mutex.unlock mutex
+    in
+        case outcome of
+            NONE => ()
+          | SOME exn => raise exn
+    end;
+
+val strings = List.tabulate (100000, fn _ => "a");
+val expected = CharVector.tabulate (100000, fn _ => #"a");
+val expectedSeparated1 = CharVector.tabulate (199999, fn _ => #"a");
+val expectedSeparated2 = CharVector.tabulate (299998, fn _ => #"a");
+
+fun checkStackOverflow (name, f) =
+    (withSmallStack (fn () => ignore (f strings));
+     raise Fail ("Stack limit did not reject Specification." ^ name))
+    handle Thread.Thread.Interrupt => ();
+
+fun checkSmallStack (name, f, expected) =
+    withSmallStack (fn () =>
+        if f strings = expected then
+            ()
+        else
+            raise Fail "Incorrect result")
+    handle exn =>
+        raise Fail ("String." ^ name ^ " with limited stack: " ^ General.exnMessage exn);
+
+in
+
+(* Verify that the stack limit rejects each non-tail-recursive specification
+   on this input, while the library functions succeed under the same limit. *)
+val () = List.app checkStackOverflow
+    [("concat", Specification.concat),
+     ("concatRev", Specification.concatRev),
+     ("concatWith empty separator", Specification.concatWith ""),
+     ("concatWith one-character separator", Specification.concatWith "a"),
+     ("concatWith two-character separator", Specification.concatWith "aa")];
+
+val () = List.app checkSmallStack
+    [("concat", String.concat, expected),
+     ("concatRev", String.concatRev, expected),
+     ("concatWith empty separator", String.concatWith "", expected),
+     ("concatWith one-character separator", String.concatWith "a", expectedSeparated1),
+     ("concatWith two-character separator", String.concatWith "aa", expectedSeparated2)];
+
+end
 
 local
 
