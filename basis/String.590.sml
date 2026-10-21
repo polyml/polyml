@@ -286,6 +286,9 @@ local
             (* Poly/ML extension: Concatenate a list of strings in reversed order,
                equivalent to concat o List.rev without the intermediate list. *)
             val concatRev = concatUsing true ""
+
+            (* Poly/ML extension: Concatenate in reverse order with a separator. *)
+            val concatRevWith = concatUsing true
         end
         
         (* implode is very similar to concat, in fact it could be defined

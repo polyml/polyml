@@ -1,4 +1,4 @@
-(* Test the String concatenation family: concat, concatRev, and concatWith. *)
+(* Test the String concatenation family, with optional separators and reversal. *)
 
 fun verify name actual expected =
     if actual = expected then
@@ -16,6 +16,9 @@ val () = verify "String.concatWith example"
 val () = verify "String.concatRev example"
     (String.concatRev ["abc", "def", "ghi"]) "ghidefabc";
 
+val () = verify "String.concatRevWith example"
+    (String.concatRevWith " " ["abc", "def", "ghi"]) "ghi def abc";
+
 structure Specification =
 struct
     fun concat [] = ""
@@ -27,6 +30,10 @@ struct
     fun concatWith _ [] = ""
       | concatWith _ [s] = s
       | concatWith separator (s :: rest) = s ^ separator ^ concatWith separator rest
+
+    fun concatRevWith _ [] = ""
+      | concatRevWith _ [s] = s
+      | concatRevWith separator (s :: rest) = concatRevWith separator rest ^ separator ^ s
 end;
 
 (* Compare each concat function with its specification and some identities. *)
@@ -35,8 +42,15 @@ fun check (strings : string list) : unit =
         val forward = String.concat strings
         val backward = String.concatRev strings
         fun checkSeparator separator =
+        let val backwardWithSeparator = String.concatRevWith separator strings in
             verify ("String.concatWith \"" ^ String.toString separator ^ "\"")
-                (String.concatWith separator strings) (Specification.concatWith separator strings)
+                (String.concatWith separator strings) (Specification.concatWith separator strings);
+            verify ("String.concatRevWith \"" ^ String.toString separator ^ "\"")
+                backwardWithSeparator (Specification.concatRevWith separator strings);
+            verify ("String.concatRevWith \"" ^ String.toString separator ^
+                "\" (identity with String.concatWith \"" ^ String.toString separator ^ "\" o List.rev)")
+                backwardWithSeparator (String.concatWith separator (List.rev strings))
+        end
     in
         verify "String.concat"
             forward (Specification.concat strings);
@@ -46,6 +60,8 @@ fun check (strings : string list) : unit =
             backward (Specification.concatRev strings);
         verify "String.concatRev (identity with String.concat o List.rev)"
             backward (String.concat (List.rev strings));
+        verify "String.concatRevWith \"\" (identity with String.concatRev)"
+            (String.concatRevWith "" strings) backward;
         List.app checkSeparator
             [" ", "\t", "\n", "\000", ", ", "::", "\r\n", "\000\255",
              "--- a longer separator spanning several machine words ---"]
@@ -198,21 +214,27 @@ in
 
 (* Verify that the stack limit rejects each non-tail-recursive specification
    on this input, while the library functions succeed under the same limit.
-   The five specification checks each produce an expected runtime warning:
+   The specification checks each produce an expected runtime warning:
    "Warning - Unable to increase stack - interrupting thread". *)
 val () = List.app checkStackOverflow
     [("concat", Specification.concat),
      ("concatRev", Specification.concatRev),
      ("concatWith empty separator", Specification.concatWith ""),
      ("concatWith one-character separator", Specification.concatWith "a"),
-     ("concatWith two-character separator", Specification.concatWith "aa")];
+     ("concatWith two-character separator", Specification.concatWith "aa"),
+     ("concatRevWith empty separator", Specification.concatRevWith ""),
+     ("concatRevWith one-character separator", Specification.concatRevWith "a"),
+     ("concatRevWith two-character separator", Specification.concatRevWith "aa")];
 
 val () = List.app checkSmallStack
     [("concat", String.concat, expected),
      ("concatRev", String.concatRev, expected),
      ("concatWith empty separator", String.concatWith "", expected),
      ("concatWith one-character separator", String.concatWith "a", expectedSeparated1),
-     ("concatWith two-character separator", String.concatWith "aa", expectedSeparated2)];
+     ("concatWith two-character separator", String.concatWith "aa", expectedSeparated2),
+     ("concatRevWith empty separator", String.concatRevWith "", expected),
+     ("concatRevWith one-character separator", String.concatRevWith "a", expectedSeparated1),
+     ("concatRevWith two-character separator", String.concatRevWith "aa", expectedSeparated2)];
 
 end
 
@@ -256,7 +278,9 @@ fun checkWithAllocation separator =
         val fewer = [block (resultSize - sepSize - 1), "a"]
     in
         checkAllocation ("String.concatWith \"" ^ String.toString separator ^ "\"")
-            (String.concatWith separator) fewer
+            (String.concatWith separator) fewer;
+        checkAllocation ("String.concatRevWith \"" ^ String.toString separator ^ "\"")
+            (String.concatRevWith separator) fewer
     end;
 
 in
