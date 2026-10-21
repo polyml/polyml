@@ -203,8 +203,7 @@ local
                 let
                     val sepLen = sizeAsWord separator
                     fun copyForward (_, []) = ()
-                      | copyForward (i, [H]) =
-                            bcopy (H, vec, wordSize, i, sizeAsWord H)
+                      | copyForward (i, [H]) = bcopy (H, vec, wordSize, i, sizeAsWord H)
                       | copyForward (i, H :: T) =
                         let
                             val src_len = sizeAsWord H
@@ -228,9 +227,7 @@ local
                        the length word. Each string is copied forwards. *)
                     fun copyBackward (_, []) = ()
                       | copyBackward (i, [H]) =
-                        let
-                            val src_len = sizeAsWord H
-                        in
+                        let val src_len = sizeAsWord H in
                             bcopy (H, vec, wordSize, i - src_len, src_len)
                         end
                       | copyBackward (i, H :: T) =
