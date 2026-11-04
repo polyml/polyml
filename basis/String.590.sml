@@ -198,51 +198,96 @@ local
    
         val str: char ->string = charAsString
 
-        (* Concatentate a list of strings. *)
-        fun concat [] = ""
-         |  concat [s] = s (* Handle special case to reduce copying. *)
-            (* Could also handle the case of concat(""::s) = concat s *)
-         |  concat L =
-            let
-                fun total n []     = n
-                 | total n (H::T) = total (n + size H) T
-                (* How many characters do we have to implode?   This could
-                   possibly be long (although we would probably have run out
-                   of memory long before) so we have to add these as integers
-                   and then raise an exception if it's not short. *)
-                val chars : int = total 0 L;
-            in
-                if chars = 0
-                then ""
-                else (* Normal case *)
+        local
+            fun copyForward (vec, _, separator, strings) =
                 let
-                    val chs = unsignedShortOrRaiseSize chars (* Check it's short. *)
-                    val vec = LibrarySupport.allocString chs
-                  
-                    fun copy (_, []:string list) = ()
-                     | copy (i, H :: T) =
+                    val sepLen = sizeAsWord separator
+                    fun copyForward (_, []) = ()
+                      | copyForward (i, [H]) = bcopy (H, vec, wordSize, i, sizeAsWord H)
+                      | copyForward (i, H :: T) =
                         let
                             val src_len = sizeAsWord H
+                            val next = i + src_len
                         in
-                            bcopy(H, vec, wordSize, i, src_len);
-                            copy(i+src_len, T)
+                            bcopy (H, vec, wordSize, i, src_len);
+                            if sepLen = 0w0 then
+                                ()
+                            else
+                                bcopy (separator, vec, wordSize, next, sepLen);
+                            copyForward (next + sepLen, T)
                         end
                 in
-                copy (wordSize, L);
-                RunCall.clearMutableBit vec;
-                vec
+                    copyForward (wordSize, strings)
                 end
-            end (* concat *)
 
-        fun concatWith _ [] = ""
-         |  concatWith _ [one] = one
-         |  concatWith s (hd :: tl) =
-            let
-                fun mk [] = []
-                  | mk (h::t) = s :: h :: mk t
-            in
-                concat(hd :: mk tl)
-            end
+            fun copyBackward (vec, chars, separator, strings) =
+                let
+                    val sepLen = sizeAsWord separator
+                    (* i is the end of the still-unfilled prefix, including
+                       the length word. Each string is copied forwards. *)
+                    fun copyBackward (_, []) = ()
+                      | copyBackward (i, [H]) =
+                        let val src_len = sizeAsWord H in
+                            bcopy (H, vec, wordSize, i - src_len, src_len)
+                        end
+                      | copyBackward (i, H :: T) =
+                        let
+                            val src_len = sizeAsWord H
+                            val start = i - src_len
+                        in
+                            bcopy (H, vec, wordSize, start, src_len);
+                            if sepLen = 0w0 then
+                                ()
+                            else
+                                bcopy (separator, vec, wordSize, start - sepLen, sepLen);
+                            copyBackward (start - sepLen, T)
+                        end
+                in
+                    copyBackward (wordSize + chars, strings)
+                end
+
+            fun concatUsing _ _ [] = ""
+              | concatUsing _ _ [s] = s
+              | concatUsing isReverse "" ("" :: T) = concatUsing isReverse "" T
+              | concatUsing isReverse separator (L as H :: T) =
+                let
+                    val sepSize = size separator
+                    fun total sepSize n [] = n
+                      | total sepSize n (H :: T) = total sepSize (n + sepSize + size H) T
+                    (* Sum as integers so a long result can be detected before
+                       converting the length to a word. *)
+                    val chars : int = total sepSize (size H) T
+                in
+                    if chars = 0 then
+                        ""
+                    else
+                        let
+                            val chs = unsignedShortOrRaiseSize chars (* Check it's short. *)
+                            val vec = LibrarySupport.allocString chs
+                        in
+                            if isReverse then
+                                copyBackward (vec, chs, separator, L)
+                            else
+                                copyForward (vec, chs, separator, L);
+                            RunCall.clearMutableBit vec;
+                            vec
+                        end
+                end
+        in
+            (* Concatenate a list of strings. *)
+            val concat = concatUsing false ""
+
+            (* Concatenate a list of strings with a separator between the elements. *)
+            val concatWith = concatUsing false
+
+            (* Poly/ML extension: Concatenate a list of strings in reversed order,
+               equivalent to concat o List.rev without the intermediate list. *)
+            val concatRev = concatUsing true ""
+
+            (* Poly/ML extension: Concatenate in reverse order with a separator,
+               equivalent to concatWith sep o List.rev without the intermediate list. *)
+            val concatWithRev = concatUsing true
+        end
         
         (* implode is very similar to concat, in fact it could be defined
            as a cast version of it. *)
@@ -297,17 +342,12 @@ local
             val len = sizeAsWord s
         in
             let
-                (* Accumulate the characters into a list. *)
+                (* Accumulate translated strings in reverse order. *)
                 fun mapChars i l =
                     if i = len then l
                     else mapChars (i+0w1) (f(RunCall.loadByteFromImmutable(s, i+wordSize)) :: l)
-                
-                (* Reverse has not yet been defined. *)
-                fun revAppend([], a) = a
-                |   revAppend(x::y, a) = revAppend(y, x::a)
             in
-                (* Reverse the list and concatenate it. *)
-                concat(revAppend(mapChars 0w0 [], []))
+                concatRev (mapChars 0w0 [])
             end
         end
         
@@ -1027,9 +1067,9 @@ in
             fun scanString str (l: string list) haveRead =
                 case scanBase getc str of
                     NONE => (* Invalid escape sequence *)
-                        if haveRead then SOME(concat(rev l), str) else NONE
+                        if haveRead then SOME (concatRev l, str) else NONE
                 |   SOME("", strm') => (* End of input or read a format sequence. *)
-                        (case getc strm' of NONE => SOME(concat(rev l), strm') | _ => scanString strm' l true)
+                        (case getc strm' of NONE => SOME (concatRev l, strm') | _ => scanString strm' l true)
                 |   SOME(s, strm') => scanString strm' (s :: l) true (* More to do. *)
         in
             scanString str [] false

@@ -378,7 +378,7 @@ local
                                     fun doPrint s = result := s :: ! result
                                     val () = PolyML.prettyPrint(doPrint, !PolyML.Compiler.lineLength) message
                                 in
-                                    String.concat(List.rev(! result))
+                                    String.concatRev (! result)
                                 end
                             in
                                 printEsc #"T";
@@ -426,7 +426,7 @@ local
                                     fun doPrint s = result := s :: ! result
                                     val () = PolyML.prettyPrintWithIDEMarkup(doPrint, !PolyML.Compiler.lineLength) message
                                 in
-                                    String.concat(List.rev(! result))
+                                    String.concatRev (! result)
                                 end
 
                                 fun printError { hardError, location, message } =
@@ -804,7 +804,7 @@ local
                             fun doPrint s = result := s :: ! result
                             val () = PolyML.prettyPrint(doPrint, 120(*!PolyML.Compiler.lineLength*)) message
                         in
-                            String.concat(List.rev(! result))
+                            String.concatRev (! result)
                         end
 
                         fun makeResponse (CompilerResponse { requestId, parseTreeId, finalOffset, result }) =
