@@ -244,9 +244,14 @@ bool MTGCProcessMarkPointers::ForkNew(PolyObject *obj)
         marker->active = true;
         nInUse++;
     }
-    bool test = gpTaskFarm->AddWork(&MTGCProcessMarkPointers::MarkPointersTask, marker, obj);
-    ASSERT(test);
-    return true;
+    if (gpTaskFarm->AddWork(&MTGCProcessMarkPointers::MarkPointersTask, marker, obj))
+        return true;
+    // The task queue is full: this can happen when there are more GC threads
+    // than queue entries.  Release the marker; the caller scans obj itself.
+    PLocker lock(&stackLock);
+    marker->active = false;
+    nInUse--;
+    return false;
 }
 
 // Main marking task.  This is forked off initially to scan a specific object and
