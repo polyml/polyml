@@ -702,8 +702,28 @@ struct
                 raise Io { name = name, function = "setPosOut",
                            cause = RandomAccessNotSupported }
     in
-        fun output1(f, c) = protectOut (output1' c) f
-        fun output(f, v) = protectOut (outputVector(v, 0, Vector.length v)) f
+        fun output1 (f as OutStream{locker, ...}, c) =
+        let
+            (* Call the operation directly with a local exception handler to avoid
+               allocating a callback closure for ThreadLib.protect. *)
+            val saved = ThreadLibSupport.preprotect locker
+        in
+            (output1' c f
+                handle exn => ThreadLibSupport.failed locker saved exn);
+            ThreadLibSupport.postprotect locker saved
+        end
+
+        fun output (f as OutStream{locker, ...}, v) =
+        let
+            (* Call the operation directly with a local exception handler to avoid
+               allocating a callback closure for ThreadLib.protect. *)
+            val len = Vector.length v
+            val saved = ThreadLibSupport.preprotect locker
+        in
+            (outputVector (v, 0, len) f
+                handle exn => ThreadLibSupport.failed locker saved exn);
+            ThreadLibSupport.postprotect locker saved
+        end
         val flushOut = protectOut flushOut'
         val closeOut = protectOut closeOut'
         val getWriter = protectOut getWriter'

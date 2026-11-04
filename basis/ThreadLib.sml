@@ -17,6 +17,53 @@
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
+structure ThreadLibSupport :>
+sig
+    type state
+    val preprotect : Thread.Mutex.mutex -> state
+    val postprotect : Thread.Mutex.mutex -> state -> unit
+    val failed : Thread.Mutex.mutex -> state -> exn -> 'a
+end =
+struct
+    type state = Word.word
+
+    (* Consume the saved state on the same thread, with the same mutex.
+       Cleanup must execute exactly once. *)
+    fun preprotect m =
+    let
+        open Word
+        (* Set this to handle interrupts synchronously except if we are blocking
+           them.  We don't want to get an asynchronous interrupt while we are
+           actually locking or unlocking the mutex but if we have to block to do
+           IO then we should allow an interrupt at that point. *)
+        val oldAttrs : Word.word = RunCall.loadWord (Thread.Thread.self (), 0w1)
+        val () =
+            if andb (oldAttrs, 0w6) = 0w0 (* Already deferred? *)
+            then ()
+            else RunCall.storeWord (Thread.Thread.self (), 0w1,
+                    orb (andb (notb 0w6, oldAttrs), 0w2))
+        val () = Thread.Mutex.lock m
+    in
+        oldAttrs
+    end
+
+    fun postprotect m oldAttrs =
+    (
+        Thread.Mutex.unlock m;
+        (* Restore the original interrupt mode and deliver pending asynchronous
+           interrupts only after releasing the mutex. *)
+        RunCall.storeWord (Thread.Thread.self (), 0w1, oldAttrs);
+        if Word.andb (oldAttrs, 0w4) = 0w4 then Thread.Thread.testInterrupt () else ()
+    )
+
+    fun failed m saved exn =
+    (
+        postprotect m saved;
+        (* Reraise the exception preserving the location information. *)
+        PolyML.Exception.reraise exn
+    )
+end;
+
 structure ThreadLib:
 sig
     val protect: Thread.Mutex.mutex -> ('a -> 'b) -> 'a -> 'b
@@ -30,35 +77,11 @@ struct
        name-space. *)
     fun protect m f a =
     let
-        open Thread.Thread Thread.Mutex
-        open Word
-        (* Set this to handle interrupts synchronously except if we are blocking
-           them.  We don't want to get an asynchronous interrupt while we are
-           actually locking or unlocking the mutex but if we have to block to do
-           IO then we should allow an interrupt at that point. *)
-        val oldAttrs: Word.word = RunCall.loadWord(self(), 0w1)
-        val () =
-            if andb(oldAttrs, 0w6) = 0w0 (* Already deferred? *)
-            then ()
-            else RunCall.storeWord (self(), 0w1,
-                    orb(andb(notb 0w6, oldAttrs), 0w2))
-        fun restoreAttrs() =
-        (
-            RunCall.storeWord (self(), 0w1, oldAttrs);
-            if andb(oldAttrs, 0w4) = 0w4 then testInterrupt() else ()
-        )
-        val () = lock m
+        val saved = ThreadLibSupport.preprotect m
         val result = f a
-            handle exn =>
-            (
-                unlock m; restoreAttrs();
-                (* Reraise the exception preserving the location information. *)
-                PolyML.Exception.reraise exn
-            )
+            handle exn => ThreadLibSupport.failed m saved exn
     in
-        unlock m;
-        restoreAttrs();
+        ThreadLibSupport.postprotect m saved;
         result
     end
 end;
-
