@@ -1554,7 +1554,10 @@ Handle Processes::ForkThread(TaskData *taskData, Handle threadFunction, PolyWord
         newTaskData->stack = gMem.NewStackSpace(machineDependent->InitialStackSize());
         if (newTaskData->stack == 0)
         {
+            schedLock.Lock();
+            taskArray[thrdIndex] = 0;
             delete(newTaskData);
+            schedLock.Unlock();
             raise_exception_string(taskData, EXC_thread, "Unable to allocate thread stack");
         }
 
