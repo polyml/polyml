@@ -458,6 +458,11 @@ private:
     uintptr_t spaceForHeap;
     // The current sizes of the allocation space and the total heap size.
     uintptr_t currentAllocSpace, currentHeapSize;
+    // The total size of the stacks in words.  Protected by stackSpaceLock.
+    uintptr_t stackSpaceTotal;
+    // True if the stacks can grow by this many words without exceeding the limit.
+    // The caller must hold stackSpaceLock.
+    bool StackSpaceAvailable(uintptr_t words);
     // LocalSpaceForAddress is a hot-spot so we use a B-tree to convert addresses;
     SpaceTree *spaceTree;
     PLock spaceTreeLock;

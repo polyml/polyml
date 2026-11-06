@@ -47,6 +47,8 @@ public:
     LocalMemSpace *AddSpaceBeforeCopyPhase(bool isMutable);
 
     bool PerformSharingPass() const { return performSharingPass; }
+    // The maximum heap size in words.  Also the limit on the total size of the thread stacks.
+    uintptr_t MaxHeapSize() const { return maxHeapSize; }
     void AdjustSizeAfterMajorGC(uintptr_t wordsRequired);
     bool AdjustSizeAfterMinorGC(uintptr_t spaceAfterGC, uintptr_t spaceBeforeGC);
 
