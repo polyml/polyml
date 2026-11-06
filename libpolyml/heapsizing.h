@@ -47,8 +47,8 @@ public:
     LocalMemSpace *AddSpaceBeforeCopyPhase(bool isMutable);
 
     bool PerformSharingPass() const { return performSharingPass; }
-    // The maximum heap size in words.  Also the limit on the total size of the thread stacks.
-    uintptr_t MaxHeapSize() const { return maxHeapSize; }
+    // The limit on the total size of the thread stacks in words.
+    uintptr_t MaxStackSize() const { return maxStackSize; }
     void AdjustSizeAfterMajorGC(uintptr_t wordsRequired);
     bool AdjustSizeAfterMinorGC(uintptr_t spaceAfterGC, uintptr_t spaceBeforeGC);
 
@@ -99,6 +99,9 @@ private:
 
     // Maximum and minimum heap size as given by the user.
     uintptr_t minHeapSize, maxHeapSize;
+    // The limit on the total size of the stacks: the maximum heap size if one
+    // was given, as a budget separate from the heap's, otherwise unlimited.
+    uintptr_t maxStackSize;
 
     // Target GC cost requested by the user.
     double userGCRatio;

@@ -1201,6 +1201,8 @@ TaskData *Processes::CreateNewTaskData()
     taskData->stack = gMem.NewStackSpace(machineDependent->InitialStackSize());
     if (taskData->stack == 0)
     {
+        PLocker lock(&schedLock);
+        taskArray[thrdIndex] = 0;
         delete(taskData);
         throw MemoryException();
     }

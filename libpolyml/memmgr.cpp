@@ -966,11 +966,9 @@ uintptr_t MemMgr::GetFreeAllocSpace()
     return freeSpace;
 }
 
-// The stacks are limited to a total of the maximum heap size, as a budget
-// separate from the heap's.  Without --maxheap that is effectively unlimited.
 bool MemMgr::StackSpaceAvailable(uintptr_t words)
 {
-    uintptr_t limit = gHeapSizeParameters.MaxHeapSize();
+    uintptr_t limit = gHeapSizeParameters.MaxStackSize();
     return stackSpaceTotal <= limit && words <= limit - stackSpaceTotal;
 }
 
