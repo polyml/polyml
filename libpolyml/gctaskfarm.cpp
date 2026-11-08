@@ -124,6 +124,11 @@ void GCTaskFarm::Terminate()
 // Add work to the queue.  Returns true if it succeeds.
 bool GCTaskFarm::AddWork(gctask work, void *arg1, void *arg2)
 {
+    // Nothing could run a queued task. The count does not change while tasks are added.
+    if (threadCount == 0)
+    {
+        return false;
+    }
     bool wantSignal = false;
     {
         PLocker l(&workLock);
@@ -248,6 +253,11 @@ DWORD WINAPI GCTaskFarm::WorkerThreadFunction(void *parameter)
 // Wait until the queue is empty.
 void GCTaskFarm::WaitForCompletion(void)
 {
+    // Without workers every task has already run on the calling thread.
+    if (threadCount == 0)
+    {
+        return;
+    }
 #if (defined(_WIN32))
     DWORD startWait;
     if (debugOptions & DEBUG_GCTASKS)
