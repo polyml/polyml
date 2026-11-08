@@ -243,7 +243,7 @@ public:
         {
             // If the high-order byte is 0xff it's a (-ve) byte offset.
             POLYSIGNED offset = last_word->AsSigned();
-            cp = last_word + 1 + offset / sizeof(PolyWord);
+            cp = last_word + 1 + offset / (POLYSIGNED)sizeof(PolyWord);
             count = cp[-1].AsUnsigned();
         }
         else
