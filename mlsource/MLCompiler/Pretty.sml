@@ -17,36 +17,6 @@
 
 structure Pretty:> PRETTY =
 struct
-
-(*    abstype context =
-        AbsContextLocation of
-            { file: string, startLine: int, startPosition: int, endLine: int, endPosition: int }
-    |   AbsContextProperty of string * string (* User property. *)
-
-    and pretty =
-        AbsPrettyBlock of int * bool * context list * pretty list
-    |   AbsPrettyBreak of int * int
-    |   AbsPrettyString of string
-    |   AbsPrettyStringAndWidth of string * int
-    |   AbsPrettyLineBreak
-    
-    with
-        val ContextLocation = AbsContextLocation
-        and ContextProperty = AbsContextProperty
-        
-        val PrettyBlock = AbsPrettyBlock
-        and PrettyBreak = AbsPrettyBreak
-        and PrettyString = AbsPrettyString
-        
-        fun isPrettyBlock(AbsPrettyBlock _) = true | isPrettyBlock _ = false
-        and isPrettyBreak(AbsPrettyBreak _) = true | isPrettyBreak _ = false
-        and isPrettyString(AbsPrettyString _) = true | isPrettyString _ = false
-
-        fun projPrettyBlock(AbsPrettyBlock b) = b | projPrettyBlock _ = raise Match
-        and projPrettyBreak(AbsPrettyBreak b) = b | projPrettyBreak _ = raise Match
-        and projPrettyString(AbsPrettyString b) = b | projPrettyString _ = raise Match
-    end;*)
-
     (* This is complicated because the data structures we use here will be exported into
        the code produced by the compiler.  We can't assume that the same representations
        will be used by this version of the compiler as are used by the compiler that is
