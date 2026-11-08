@@ -32,12 +32,18 @@
 typedef char TCHAR;
 #endif
 
+#if (defined(_WIN32) && defined(UNICODE))
+#define TCHARFMT "S"
+#else
+#define TCHARFMT "s"
+#endif
+
 NORETURNFN(extern void Exit(const char *, ...));
 NORETURNFN(extern void Crash(const char *, ...));
 
 NORETURNFN(extern void ExitWithError(const char *, int err));
 
-extern void SetLogFile(const TCHAR *fileName);
+extern void SetLogFile(const TCHAR *fileName, bool append);
 extern void Log(const char *, ...);
 extern void LogSize(uintptr_t wordSize);
 
@@ -57,5 +63,6 @@ extern unsigned    debugOptions; // debugging  flags
 #define DEBUG_RTSCALLS      0x0400      // Information about run-time calls. Not currently used.
 #define DEBUG_GC_ENHANCED   0x0800      // Intermediate level GC output
 #define DEBUG_SAVING        0x1000      // Saving state and exporting
+#define DEBUG_POLYPROC      0x2000      // Poly/ML process information
 
 #endif

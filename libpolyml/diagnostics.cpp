@@ -157,15 +157,15 @@ static FILE *logStream = NULL;
 static FILE *logStream = stdout;
 #endif
 
-void SetLogFile(const TCHAR *fileName)
+void SetLogFile(const TCHAR *fileName, bool append)
 {
 #if (defined(_WIN32) && defined(UNICODE))
-    FILE *stream = _wfopen(fileName, L"w");
+    FILE *stream = _wfopen(fileName, append ? L"a" : L"w");
     if (stream == NULL)
         fprintf(polyStdout, "Unable to open debug file %S\n", fileName);
     else logStream = stream;
 #else
-    FILE *stream = fopen(fileName, "w");
+    FILE *stream = fopen(fileName, append ? "a" : "w");
     if (stream == NULL)
         fprintf(polyStdout, "Unable to open debug file %s\n", fileName);
     else logStream = stream;
