@@ -176,3 +176,14 @@ sig
     val scanString : ((char, cs) reader -> ('a, cs) reader) -> string -> 'a option
 
 end;
+
+(* Poly/ML extensions to String, exposed to users as PolyML.String. *)
+signature STRING_EXTENSIONS =
+sig
+    (* "concatRev l" is equivalent to "String.concat (List.rev l)" but does not
+       build the intermediate reversed list. *)
+    val concatRev : string list -> string
+    (* "concatWithRev sep l" is equivalent to "String.concatWith sep (List.rev l)"
+       but does not build the intermediate reversed list. *)
+    val concatWithRev : string -> string list -> string
+end;

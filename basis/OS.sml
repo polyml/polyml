@@ -677,13 +677,9 @@ struct
                 else if a = parentArc then ".."
                 else a
 
-            fun mapArcs [] = []
-             |  mapArcs [a] = [mapArc a]
-             |  mapArcs (a::b) = mapArc a :: "/" :: mapArcs b
-
             val {isAbs, vol, arcs} = fromString s
             val volArc = if vol <> "" then vol :: arcs else arcs
-            val sl = String.concat(mapArcs volArc)
+            val sl = String.concatWith "/" (List.map mapArc volArc)
         in
             if String.size sl = 0 then ""
             else if isAbs then if String.sub(sl, 0) <> #"/" then "/" ^ sl else sl

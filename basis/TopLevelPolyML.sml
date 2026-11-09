@@ -378,7 +378,7 @@ local
                                     fun doPrint s = result := s :: ! result
                                     val () = PolyML.prettyPrint(doPrint, !PolyML.Compiler.lineLength) message
                                 in
-                                    String.concat(List.rev(! result))
+                                    StringExtensions.concatRev (! result)
                                 end
                             in
                                 printEsc #"T";
@@ -426,7 +426,7 @@ local
                                     fun doPrint s = result := s :: ! result
                                     val () = PolyML.prettyPrintWithIDEMarkup(doPrint, !PolyML.Compiler.lineLength) message
                                 in
-                                    String.concat(List.rev(! result))
+                                    StringExtensions.concatRev (! result)
                                 end
 
                                 fun printError { hardError, location, message } =
@@ -804,7 +804,7 @@ local
                             fun doPrint s = result := s :: ! result
                             val () = PolyML.prettyPrint(doPrint, 120(*!PolyML.Compiler.lineLength*)) message
                         in
-                            String.concat(List.rev(! result))
+                            StringExtensions.concatRev (! result)
                         end
 
                         fun makeResponse (CompilerResponse { requestId, parseTreeId, finalOffset, result }) =
@@ -1729,6 +1729,10 @@ in
             val parseTree = parseTree
             val runIDEProtocol = runIDEProtocol
         end;
+
+        (* Poly/ML extensions to String.  This must be defined here, after all
+           basis code that opens PolyML, so that it does not hide String. *)
+        structure String = StringExtensions
 
         open PolyML (* Add this to the PolyML structure. *)
     end
