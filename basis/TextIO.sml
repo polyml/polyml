@@ -132,7 +132,7 @@ structure TextIO :> TEXT_IO = struct
                        otherwise return what we had with a newline added. *)
                     case read of
                         [] => NONE
-                    |   _ => SOME (String.concatRev ("\n" :: read), f)
+                    |   _ => SOME (StringExtensions.concatRev ("\n" :: read), f)
                     )
                 else if nlPos > length
                 then inputBlocks (blk::read) f' (* No newline - get another block.. *)
@@ -142,7 +142,7 @@ structure TextIO :> TEXT_IO = struct
                            and return the stream which gives us the rest. *)
                         val (b, f') = inputN(f, nlPos)
                     in
-                        SOME (String.concatRev (b :: read), f')
+                        SOME (StringExtensions.concatRev (b :: read), f')
                     end
             end
         in

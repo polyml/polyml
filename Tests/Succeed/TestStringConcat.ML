@@ -13,11 +13,11 @@ val () = verify "String.concat example"
 val () = verify "String.concatWith example"
     (String.concatWith " " ["abc", "def", "ghi"]) "abc def ghi";
 
-val () = verify "String.concatRev example"
-    (String.concatRev ["abc", "def", "ghi"]) "ghidefabc";
+val () = verify "PolyML.String.concatRev example"
+    (PolyML.String.concatRev ["abc", "def", "ghi"]) "ghidefabc";
 
-val () = verify "String.concatWithRev example"
-    (String.concatWithRev " " ["abc", "def", "ghi"]) "ghi def abc";
+val () = verify "PolyML.String.concatWithRev example"
+    (PolyML.String.concatWithRev " " ["abc", "def", "ghi"]) "ghi def abc";
 
 structure Specification =
 struct
@@ -40,14 +40,14 @@ end;
 fun check (strings : string list) : unit =
     let
         val forward = String.concat strings
-        val backward = String.concatRev strings
+        val backward = PolyML.String.concatRev strings
         fun checkSeparator separator =
-        let val backwardWithSeparator = String.concatWithRev separator strings in
+        let val backwardWithSeparator = PolyML.String.concatWithRev separator strings in
             verify ("String.concatWith \"" ^ String.toString separator ^ "\"")
                 (String.concatWith separator strings) (Specification.concatWith separator strings);
-            verify ("String.concatWithRev \"" ^ String.toString separator ^ "\"")
+            verify ("PolyML.String.concatWithRev \"" ^ String.toString separator ^ "\"")
                 backwardWithSeparator (Specification.concatWithRev separator strings);
-            verify ("String.concatWithRev \"" ^ String.toString separator ^
+            verify ("PolyML.String.concatWithRev \"" ^ String.toString separator ^
                 "\" (identity with String.concatWith \"" ^ String.toString separator ^ "\" o List.rev)")
                 backwardWithSeparator (String.concatWith separator (List.rev strings))
         end
@@ -56,12 +56,12 @@ fun check (strings : string list) : unit =
             forward (Specification.concat strings);
         verify "String.concatWith \"\" (identity with String.concat)"
             (String.concatWith "" strings) forward;
-        verify "String.concatRev"
+        verify "PolyML.String.concatRev"
             backward (Specification.concatRev strings);
-        verify "String.concatRev (identity with String.concat o List.rev)"
+        verify "PolyML.String.concatRev (identity with String.concat o List.rev)"
             backward (String.concat (List.rev strings));
-        verify "String.concatWithRev \"\" (identity with String.concatRev)"
-            (String.concatWithRev "" strings) backward;
+        verify "PolyML.String.concatWithRev \"\" (identity with PolyML.String.concatRev)"
+            (PolyML.String.concatWithRev "" strings) backward;
         List.app checkSeparator
             [" ", "\t", "\n", "\000", ", ", "::", "\r\n", "\000\255",
              "--- a longer separator spanning several machine words ---"]
@@ -228,13 +228,13 @@ val () = List.app checkStackOverflow
 
 val () = List.app checkSmallStack
     [("concat", String.concat, expected),
-     ("concatRev", String.concatRev, expected),
+     ("concatRev", PolyML.String.concatRev, expected),
      ("concatWith empty separator", String.concatWith "", expected),
      ("concatWith one-character separator", String.concatWith "a", expectedSeparated1),
      ("concatWith two-character separator", String.concatWith "aa", expectedSeparated2),
-     ("concatWithRev empty separator", String.concatWithRev "", expected),
-     ("concatWithRev one-character separator", String.concatWithRev "a", expectedSeparated1),
-     ("concatWithRev two-character separator", String.concatWithRev "aa", expectedSeparated2)];
+     ("concatWithRev empty separator", PolyML.String.concatWithRev "", expected),
+     ("concatWithRev one-character separator", PolyML.String.concatWithRev "a", expectedSeparated1),
+     ("concatWithRev two-character separator", PolyML.String.concatWithRev "aa", expectedSeparated2)];
 
 end
 
@@ -279,8 +279,8 @@ fun checkWithAllocation separator =
     in
         checkAllocation ("String.concatWith \"" ^ String.toString separator ^ "\"")
             (String.concatWith separator) fewer;
-        checkAllocation ("String.concatWithRev \"" ^ String.toString separator ^ "\"")
-            (String.concatWithRev separator) fewer
+        checkAllocation ("PolyML.String.concatWithRev \"" ^ String.toString separator ^ "\"")
+            (PolyML.String.concatWithRev separator) fewer
     end;
 
 in
@@ -294,7 +294,7 @@ val () =
             (* Verify that the profiler detects an actual intermediate list. *)
             if allocatedWords reference longer > allocatedWords reference shorter then
                 (checkAllocation "String.concat" String.concat shorter;
-                 checkAllocation "String.concatRev" String.concatRev shorter;
+                 checkAllocation "PolyML.String.concatRev" PolyML.String.concatRev shorter;
                  List.app checkWithAllocation ["", " ", "::", "a longer separator"])
             else
                 raise Fail "Allocation profiler did not detect List.rev"

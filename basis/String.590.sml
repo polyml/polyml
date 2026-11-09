@@ -860,6 +860,14 @@ local
 
 in
 
+    (* Poly/ML extensions that are not part of the STRING signature.  This structure
+       is not exported to the top level; it is exposed to users as PolyML.String. *)
+    structure StringExtensions : STRING_EXTENSIONS =
+    struct
+        val concatRev = String.concatRev
+        val concatWithRev = String.concatWithRev
+    end
+
     (* At this point we can start to add conversion functions. *)
     structure CharVector: MONO_VECTOR =
     struct

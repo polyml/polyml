@@ -76,10 +76,6 @@ sig
     val substring : (string * int * int) -> string
     val concat : string list -> string
     val concatWith: string -> string list -> string
-    (* Poly/ML extension: "concatRev" is equivalent to "concat o List.rev". *)
-    val concatRev : string list -> string
-    (* Poly/ML extension: "concatWithRev sep" is equivalent to "concatWith sep o List.rev". *)
-    val concatWithRev: string -> string list -> string
     val ^ : (string * string) -> string
     val str : char -> string
     val implode : char list -> string
@@ -179,4 +175,15 @@ sig
     type  cs
     val scanString : ((char, cs) reader -> ('a, cs) reader) -> string -> 'a option
 
+end;
+
+(* Poly/ML extensions to String, exposed to users as PolyML.String. *)
+signature STRING_EXTENSIONS =
+sig
+    (* "concatRev l" is equivalent to "String.concat (List.rev l)" but does not
+       build the intermediate reversed list. *)
+    val concatRev : string list -> string
+    (* "concatWithRev sep l" is equivalent to "String.concatWith sep (List.rev l)"
+       but does not build the intermediate reversed list. *)
+    val concatWithRev : string -> string list -> string
 end;
