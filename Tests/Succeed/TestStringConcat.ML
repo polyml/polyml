@@ -252,14 +252,46 @@ fun allocatedWords (f : string list -> string) (strings : string list) : int =
         !words
     end;
 
-(* Build nonempty inputs before profiling; both produce the same 1000-character string. *)
-val chunk = CharVector.tabulate (500, fn _ => #"a");
-val shorter = [chunk, chunk];
-val longer = List.tabulate (1000, fn _ => "a");
+fun block n = CharVector.tabulate (n, fn _ => #"a");
+
+(* On 32-in-64 builds, the run-time system rounds the size of every allocation
+   up to a multiple of POLYML32IN64 words (see FindAllocationSpace in
+   libpolyml/processes.cpp), whereas PolyML.objSize reports the exact size.
+   POLYML32IN64 is either 2 words or 4 words (enforced in libpolyml/globals.h)
+   and other builds do not round, so the inputs are chosen such that, on
+   32-in-64 builds, where a word is 4 bytes, the result occupies a multiple of
+   4 words and is never rounded.
+
+   The long input consists of 1025 strings of 8 bytes each, separated by 1024
+   separators.  Since 1024 is a multiple of 16, the separators contribute a
+   multiple of 16 bytes whatever their size, and the strings contribute
+   1025 * 8 bytes = 8200 bytes = (512 * 16 + 8) bytes.  The characters
+   therefore occupy (4 * m + 2) words for some m.  The object's header, which
+   holds its size in words and flags (1 word), and the string's length in bytes,
+   stored as the first word of the object (1 word), bring the total to
+   (4 * m + 4) words.
+
+   The short input consists of two strings that concatenate to the same result.
+   Both inputs are built here, before profiling. *)
+val elementCount = 1025;
+val elementSize = 8;
+
+(* Return the short and long inputs, in that order, that concatenate with
+   "separator" to the same result. *)
+fun inputs (separator : string) : string list * string list =
+    let
+        val longer = List.tabulate (elementCount, fn _ => block elementSize)
+        val shorter = [hd longer, String.concatWith separator (tl longer)]
+    in
+        if String.concatWith separator shorter = String.concatWith separator longer then
+            (shorter, longer)
+        else
+            raise Fail "Inputs do not concatenate to the same result"
+    end;
 
 (* Both the short and long inputs must allocate exactly the space occupied by
    the result string, without temporary objects. *)
-fun checkAllocation (name : string) (f : string list -> string) shorter : unit =
+fun checkAllocation (name : string) (f : string list -> string) (shorter, longer) : unit =
     let
         val expectedWords = PolyML.objSize (f shorter)
     in
@@ -272,15 +304,12 @@ fun checkAllocation (name : string) (f : string list -> string) shorter : unit =
 
 fun checkWithAllocation separator =
     let
-        val sepSize = String.size separator
-        val resultSize = 1000 + 999 * sepSize
-        fun block n = CharVector.tabulate (n, fn _ => #"a")
-        val fewer = [block (resultSize - sepSize - 1), "a"]
+        val sepInputs = inputs separator
     in
         checkAllocation ("String.concatWith \"" ^ String.toString separator ^ "\"")
-            (String.concatWith separator) fewer;
+            (String.concatWith separator) sepInputs;
         checkAllocation ("PolyML.String.concatWithRev \"" ^ String.toString separator ^ "\"")
-            (PolyML.String.concatWithRev separator) fewer
+            (PolyML.String.concatWithRev separator) sepInputs
     end;
 
 in
@@ -290,11 +319,14 @@ val () =
     if PolyML.architecture () = "Interpreted" then
         ()
     else
-        let val reference = String.concat o List.rev in
+        let
+            val reference = String.concat o List.rev
+            val concatInputs as (shorter, longer) = inputs ""
+        in
             (* Verify that the profiler detects an actual intermediate list. *)
             if allocatedWords reference longer > allocatedWords reference shorter then
-                (checkAllocation "String.concat" String.concat shorter;
-                 checkAllocation "PolyML.String.concatRev" PolyML.String.concatRev shorter;
+                (checkAllocation "String.concat" String.concat concatInputs;
+                 checkAllocation "PolyML.String.concatRev" PolyML.String.concatRev concatInputs;
                  List.app checkWithAllocation ["", " ", "::", "a longer separator"])
             else
                 raise Fail "Allocation profiler did not detect List.rev"
