@@ -693,14 +693,14 @@ struct
                    First load the address of the argument area which is after the
                    32-byte result area. *)
                 AddImmediate{opSize=OpSize64, setFlags=false, regN=XSP, regD=X2, immed=0w32, shifted=false}
-            ] @ List.rev(boxSysWord({source=X2, destination=X0, workReg=X3, saveRegs=[]}, [])) @ (* Address of arguments. *)
+            ] @ List.rev(boxSysWord({source=X2, destination=X0, workReg=X3, saveRegs=[X20]}, [])) @ (* Address of arguments. *)
             (
                 (* Result area pointer.  If we're returning by reference this is the original
                    value of X8 otherwise it's the address of the 32 bytes we've reserved. *)
                 if resultByReference
                 then [LoadRegScaled{loadType=Load64, regT=X2, regN=XSP, unitOffset=0}]
                 else [MoveXRegToXReg{sReg=XSP, dReg=X2}]
-            ) @ List.rev(boxSysWord({source=X2, destination=X1, workReg=X3, saveRegs=[]}, [])) @
+            ) @ List.rev(boxSysWord({source=X2, destination=X1, workReg=X3, saveRegs=[X0, X20]}, [])) @
                 (* Put the ML closure pointer, originally in X9 now in X20, into the
                    ML closure pointer register, X8.  Then call the ML code. *)
             [MoveXRegToXReg{sReg=X20, dReg=X8}] @
