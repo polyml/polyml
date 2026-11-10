@@ -1964,10 +1964,13 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP4(POLYUNSIGNED
     try {
         PolyStringObject* psAddr = (PolyStringObject*)PolyWord::FromUnsigned(sockAddress).AsObjPtr();
         struct sockaddr_in* psock = (struct sockaddr_in*) & psAddr->chars;
-        Handle ipAddr = Make_arbitrary_precision(taskData, ntohl(psock->sin_addr.s_addr)); // IPv4 addr is LargeInt.int
+        // Copy the fields out first: the allocations below can GC and move psAddr.
+        uint32_t addr = ntohl(psock->sin_addr.s_addr);
+        unsigned short port = ntohs(psock->sin_port);
+        Handle ipAddr = Make_arbitrary_precision(taskData, addr); // IPv4 addr is LargeInt.int
         result = alloc_and_save(taskData, 2);
         result->WordP()->Set(0, ipAddr->Word());
-        result->WordP()->Set(1, TAGGED(ntohs(psock->sin_port)));
+        result->WordP()->Set(1, TAGGED(port));
     }
     catch (...) {} // If an ML exception is raised
 
@@ -2035,10 +2038,13 @@ POLYEXTERNALSYMBOL POLYUNSIGNED PolyNetworkGetAddressAndPortFromIP6(POLYUNSIGNED
         if (psAddr->length != sizeof(struct sockaddr_in6))
             raise_fail(taskData, "Invalid length");
         struct sockaddr_in6* psock = (struct sockaddr_in6*) & psAddr->chars;
-        Handle ipAddr = SAVE(C_string_to_Poly(taskData, (const char*)&psock->sin6_addr, sizeof(struct in6_addr)));
+        // Copy the fields out first: the allocations below can GC and move psAddr.
+        struct in6_addr addr = psock->sin6_addr;
+        unsigned short port = ntohs(psock->sin6_port);
+        Handle ipAddr = SAVE(C_string_to_Poly(taskData, (const char*)&addr, sizeof(struct in6_addr)));
         result = alloc_and_save(taskData, 2);
         result->WordP()->Set(0, ipAddr->Word());
-        result->WordP()->Set(1, TAGGED(ntohs(psock->sin6_port)));
+        result->WordP()->Set(1, TAGGED(port));
 
     }
     catch (...) {} // If an ML exception is raised
