@@ -1146,6 +1146,8 @@ POLYUNSIGNED PolyOSSpecificGeneral(POLYUNSIGNED threadId, POLYUNSIGNED code, POL
 
     try {
         result = OS_spec_dispatch_c(taskData, pushedArg, pushedCode);
+    } catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
@@ -1202,6 +1204,8 @@ POLYUNSIGNED PolyPosixSleep(POLYUNSIGNED threadId, POLYUNSIGNED maxMillisecs, PO
                     raise_syscall(taskData, "sleep failed", waiter.errcode);
             }
         }
+    } catch (KillException &) {
+        processes->ThreadExit(taskData); // TestAnyEvents may test for kill
     } catch (...) { } // If an ML exception is raised
 
     taskData->saveVec.reset(reset); // Ensure the save vec is reset
