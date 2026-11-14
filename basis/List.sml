@@ -102,17 +102,23 @@ structure List: LIST =
       | filter f (a::b) = if f a then a :: filter f b else filter f b
     
     (* This is defined to evaluate f from left to right.  *)
-    (* TODO: This involves returning a pair and creating new pairs
-       which allocates storage in Poly/ML.  Is there a more efficient
-       implementation?  e.g. recurse down the list and then reverse it. *)
+    (* The recursive call does not allocate a pair: The optimiser returns
+       the two results in a container on the stack.  That leaves one cons
+       cell per element, which is avoided for any suffix of the list whose
+       elements all go to the same side by sharing it with the argument. *)
     fun partition _ [] = ([], [])
-      | partition f (a::b) =
-            let
-            val test = f a
-            and (x, y) = partition f b
-            in
-            if test then (a::x, y) else (x, a::y)
-            end
+      | partition f (l as x :: xs) =
+        let
+            val test = f x
+            and (ys, zs) = partition f xs
+        in
+            (* If the other side is empty then, by induction, this side is
+               xs itself and the result is the original list. *)
+            if test then
+                (if null zs then (l, []) else (x :: ys, zs))
+            else
+                (if null ys then ([], l) else (ys, x :: zs))
+        end
             
     fun foldl _ b [] = b
       | foldl f b (x::y) = foldl f (f(x, b)) y
