@@ -2237,9 +2237,12 @@ static Handle LoadModule(TaskData* taskData, Handle args)
         }
     }
 
+    // Allocate the module id before the pair: an allocation can GC and move
+    // the pair while a raw pointer to it is held.
+    Handle modId = moduleIdAsByteVector(taskData, loader.loadedModId);
     Handle result = alloc_and_save(taskData, 2);
     result->WordP()->Set(0, loader.rootHandle->Word());
-    result->WordP()->Set(1, moduleIdAsByteVector(taskData, loader.loadedModId)->Word());
+    result->WordP()->Set(1, modId->Word());
 
     return result;
 }
