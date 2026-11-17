@@ -346,7 +346,7 @@ void CreateHeap()
     // Create the task farm if required
     if (userOptions.gcthreads != 1)
     {
-        if (! gTaskFarm.Initialise(userOptions.gcthreads, 100))
+        if (! gTaskFarm.Initialise(userOptions.gcthreads, userOptions.gcthreads > 100 ? userOptions.gcthreads : 100))
             Crash("Unable to initialise the GC task farm");
     }
     // Set up the stacks for the mark phase.
