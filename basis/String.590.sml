@@ -1544,19 +1544,27 @@ in
         (* map and translate are defined to apply f from left to right. *)
         fun translate f s = String.concat(List.map f (explode s))
         
-        fun position s (Slice{vector=s', start=i, length=n}) =
+        fun position s (slices as Slice {vector = s', start = i, length = n}) =
         let
-            val m = sizeAsWord s (* Length of string to match. *)
-            fun pos k =
-                if k > n-m then (* No match *) (Slice{vector=s', start=i, length=n}, Slice{vector=s', start=i+n, length=0w0})
-                else if compare(full s, Slice{vector=s', start=i+k, length=m}) = EQUAL
-                then (* Match *) (Slice{vector=s', start=i, length=k}, Slice{vector=s', start=k+i, length=n-k})
-                else pos (k+0w1)
+            val m = sizeAsWord s
+            fun noMatch () = (slices, Slice {vector = s', start = i + n, length = 0w0})
         in
-            (* Because m and n are word values n-m is UNSIGNED so we have to check
-               this before we call "pos". *)
-            if m > n then (Slice{vector=s', start=i, length=n}, Slice{vector=s', start=i+n, length=0w0})
-            else pos 0w0
+            if m > n then
+                noMatch ()
+            else
+                let
+                    val last = n - m
+                    fun pos k =
+                        if k > last then
+                            noMatch ()
+                        else if byteMatch s s' 0w0 (i + k) m then
+                            (Slice {vector = s', start = i, length = k},
+                             Slice {vector = s', start = i + k, length = n - k})
+                        else
+                            pos (k + 0w1)
+                in
+                    pos 0w0
+                end
         end
 
         (* Return the first character of the string together with the rest of the
