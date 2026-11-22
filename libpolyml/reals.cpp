@@ -349,13 +349,21 @@ double PolyRealTrunc(double arg)
 
 double PolyRealRound(double arg)
 {
-    // Round to nearest integral value.
-    double drem = fmod(arg, 2.0);
-    if (drem == 0.5 || drem == -1.5)
-        // If the value was exactly positive even + 0.5 or
-        // negative odd -0.5 round it down, otherwise round it up. 
-        return ceil(arg-0.5);
-    else return floor(arg+0.5);
+    // Check for range that can represent non-integral values.
+    if (std::abs(arg) < std::ldexp(1.0, DBL_MANT_DIG - 1))
+    {
+        // Round to nearest integral value.
+        double drem = fmod(arg, 2.0);
+        if (drem == 0.5 || drem == -1.5)
+            // If the value was exactly positive even + 0.5 or
+            // negative odd -0.5 round it down, otherwise round it up.
+            return arg - 0.5;
+        else
+            // arg + 0.5 does not round due to initial range check.
+            // (The result would be incorrect if it rounded up.)
+            return floor(arg + 0.5);
+    }
+    else return arg;
 }
 
 double PolyRealRem(double arg1, double arg2)
@@ -576,13 +584,21 @@ float PolyRealFTrunc(float arg)
 
 float PolyRealFRound(float arg)
 {
-    // Round to nearest integral value.
-    float drem = fmodf(arg, 2.0);
-    if (drem == 0.5 || drem == -1.5)
-        // If the value was exactly positive even + 0.5 or
-        // negative odd -0.5 round it down, otherwise round it up. 
-        return ceilf(arg - 0.5f);
-    else return floorf(arg + 0.5f);
+    // Check for range that can represent non-integral values.
+    if (std::abs(arg) < std::ldexp(1.0, FLT_MANT_DIG - 1))
+    {
+        // Round to nearest integral value.
+        float drem = fmodf(arg, 2.0);
+        if (drem == 0.5 || drem == -1.5)
+            // If the value was exactly positive even + 0.5 or
+            // negative odd -0.5 round it down, otherwise round it up.
+            return arg - 0.5f;
+        else
+            // arg + 0.5f does not round due to initial range check.
+            // (The result would be incorrect if it rounded up.)
+            return floorf(arg + 0.5f);
+    }
+    else return arg;
 }
 
 float PolyRealFRem(float arg1, float arg2)
