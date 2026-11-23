@@ -1490,7 +1490,19 @@ void Processes::BeginRootThread(PolyObject *rootFunction)
         globalStats.updatePeriodicStats(freeSpace, threadsInML);
 
         // Process the profile queue if necessary.
+#if !defined(HAVE_WINDOWS_H)
+        // processProfileQueue takes the locks that handleProfileTrap takes.
+        // Block SIGVTALRM so that the handler can't run on this thread
+        // while it holds them and deadlock.
+        sigset_t profSigs, oldSigs;
+        sigemptyset(&profSigs);
+        sigaddset(&profSigs, SIGVTALRM);
+        pthread_sigmask(SIG_BLOCK, &profSigs, &oldSigs);
+#endif
         processProfileQueue();
+#if !defined(HAVE_WINDOWS_H)
+        pthread_sigmask(SIG_SETMASK, &oldSigs, NULL);
+#endif
     }
     schedLock.Unlock();
     finish(exitResult); // Close everything down and exit.

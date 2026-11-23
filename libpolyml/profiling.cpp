@@ -369,9 +369,9 @@ void processProfileQueue()
         {
             PLocker locker(&queueLock);
             if (queuePtr == 0) return;
+            queuePtr--;
             if (queuePtr < PCQUEUESIZE)
                 pc = pcQueue[queuePtr];
-            queuePtr--;
         }
         if (pc != 0)
             addSynchronousCount(pc, 1);
